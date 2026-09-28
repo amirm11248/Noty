@@ -1190,7 +1190,7 @@ struct DocumentEditorView: View {
             x: 36,
             y: 36,
             width: max(120, min(540, Double(canvasSize.width) - 72)),
-            height: max(80, min(420, Double(canvasSize.height) - 72, Double(lines) * 28 + 24)),
+            height: max(80, min(420, min(Double(canvasSize.height) - 72, Double(lines) * 28 + 24))),
             fontSize: 18
         )
         store.updateTextBoxes(documentID: documentID, pageID: page.id, textBoxes: page.textBoxes + [box])
