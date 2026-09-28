@@ -1502,7 +1502,7 @@ private struct LibrarySettingsView: View {
                     }
                     Text(account.lastError ?? account.status)
                         .font(.footnote)
-                        .foregroundStyle(account.lastError == nil ? .secondary : .red)
+                        .foregroundStyle(account.lastError == nil ? NotionTheme.inkSecondary : NotionTheme.danger)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } header: {
