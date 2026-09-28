@@ -28,3 +28,14 @@ jobs:
             -sdk iphonesimulator \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+      - name: Compile Noty tests
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Noty.xcodeproj \
+            -target NotyTests \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            CODE_SIGNING_ALLOWED=NO \
+            build
