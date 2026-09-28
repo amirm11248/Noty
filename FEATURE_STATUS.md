@@ -35,19 +35,26 @@ This file tracks the gap between the current native iPad app and the larger Good
 
 ## Cloud durability
 
-### iCloud Drive editable backup
+### Sync with Folder editable library
 
-- [x] User selects a folder through the iOS Files picker
+- [x] User selects a writable folder through the iOS Files picker
+- [x] New setups use a `Noty Sync` subfolder
+- [x] Existing `Noty Backup` folders remain readable for migration compatibility
 - [x] Directory permission is persisted with the iOS directory-bookmark flow
 - [x] Stale bookmarks are refreshed when possible
+- [x] Bidirectional manifest merge for folders/documents/deletions
 - [x] Versioned editable snapshots include manifest, imported PDFs/originals and drawing assets
-- [x] Merge/recovery logic restores a library after local data loss
-- [x] Tombstones prevent intentionally deleted documents from returning during recovery
+- [x] Tombstones prevent intentionally deleted documents from returning
 - [x] Foreground edit debounce and foreground/scene-transition sync
-- [x] `BGProcessingTask` retry scheduling with the `processing` background mode
-- [x] Recovery regression tests
+- [x] `BGProcessingTask` retry scheduling
+- [x] Optional shared-folder discovery link stored in synchronizable iCloud Keychain
+- [x] A second Apple device can recover that link without retyping it
+- [x] Recovery and legacy-folder regression tests
+- [ ] Zero-tap Files permission transfer between devices — intentionally impossible with iOS security-scoped folder access
+- [ ] Same-document collaborative merge. Current document conflicts use document-level timestamp resolution rather than Google-Docs-style operation merging.
 
-iPadOS still decides when a background task runs and when iCloud Drive uploads provider data. The app therefore reports local/provider write status without claiming guaranteed cloud-delivery timing.
+iOS requires every device to approve external Files-folder access once. iCloud Keychain can synchronize the discovery link, but not the security-scoped directory grant itself.
+
 
 ### OneDrive PDF mirror
 
