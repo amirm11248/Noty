@@ -573,7 +573,7 @@ final class NotyStore {
         }
 
         do {
-            let bookmark = try folderURL.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
+            let bookmark = try persistentFolderBookmark(for: folderURL)
             try bookmark.write(to: mirrorBookmarkURL, options: .atomic)
             iCloudMirrorFolderURL = folderURL
             syncStatus = "Backup folder selected. Checking for a saved Noty library…"
@@ -737,22 +737,66 @@ final class NotyStore {
 
     private func restoreMirrorBookmark() {
         guard let data = try? Data(contentsOf: mirrorBookmarkURL) else { return }
-        var bookmarkIsStale = false
         do {
-            let folderURL = try URL(
-                resolvingBookmarkData: data,
-                options: [],
-                relativeTo: nil,
-                bookmarkDataIsStale: &bookmarkIsStale
-            )
-            if bookmarkIsStale {
-                syncStatus = "The iCloud Drive bookmark needs to be renewed. Select the backup folder again."
+            let resolved = try resolvePersistentFolderBookmark(data)
+            iCloudMirrorFolderURL = resolved.url
+
+            if resolved.isStale {
+                let beganAccess = resolved.url.startAccessingSecurityScopedResource()
+                defer {
+                    if beganAccess { resolved.url.stopAccessingSecurityScopedResource() }
+                }
+                let refreshedBookmark = try persistentFolderBookmark(for: resolved.url)
+                try refreshedBookmark.write(to: mirrorBookmarkURL, options: .atomic)
+                syncStatus = "iCloud Drive backup folder access refreshed. Sync to check for recovery data."
             } else {
-                iCloudMirrorFolderURL = folderURL
                 syncStatus = "iCloud Drive backup folder ready. Sync to check for recovery data."
             }
         } catch {
+            iCloudMirrorFolderURL = nil
             syncStatus = "iCloud Drive access expired. Select the backup folder again in Files."
+        }
+    }
+
+    /// Document-picker URLs are security scoped. Persist that grant so the
+    /// selected iCloud Drive folder remains usable after an app relaunch.
+    /// Local test folders cannot always create a security-scoped bookmark, so
+    /// the plain bookmark fallback keeps unit tests and app-owned folders valid.
+    private func persistentFolderBookmark(for url: URL) throws -> Data {
+        do {
+            return try url.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+        } catch {
+            return try url.bookmarkData(
+                options: [],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+        }
+    }
+
+    private func resolvePersistentFolderBookmark(_ data: Data) throws -> (url: URL, isStale: Bool) {
+        var securityScopedIsStale = false
+        do {
+            let url = try URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &securityScopedIsStale
+            )
+            return (url, securityScopedIsStale)
+        } catch {
+            var plainIsStale = false
+            let url = try URL(
+                resolvingBookmarkData: data,
+                options: [],
+                relativeTo: nil,
+                bookmarkDataIsStale: &plainIsStale
+            )
+            return (url, plainIsStale)
         }
     }
 
