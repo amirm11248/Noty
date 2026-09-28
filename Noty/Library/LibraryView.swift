@@ -131,7 +131,7 @@ struct LibraryView: View {
         }
         .task {
             refreshSearchResults()
-            folderSyncProfile.refresh()
+            await account.bootstrap()
             await syncCloudMirrors()
             scheduleBackgroundCloudRetry()
         }
