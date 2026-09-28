@@ -23,7 +23,7 @@ Open **Settings → Sync with Folder** and choose a writable folder in Files. Fo
 
 ### Smooth setup on your other Apple devices
 
-For a shared iCloud Drive folder, configure the folder in Files as **Anyone with the link → Can make changes**, copy its sharing link, and paste it once into **Settings → Sync with Folder → Shared folder link**. Noty stores only that discovery link as a synchronizable iCloud Keychain item. Apple documents `kSecAttrSynchronizable` as synchronizing keychain items to the user's other devices through iCloud.
+For your own devices on the same Apple Account, keep the iCloud Drive folder private and select the same folder once on each device. The **Shared folder link** field is optional: use it when you want easier discovery or need to invite another Apple Account. Prefer **People You Choose** where possible. If you deliberately use **Anyone with the link → Can make changes**, treat the URL like a secret because anyone who obtains it can modify the folder. Noty stores only that optional discovery link as a synchronizable iCloud Keychain item. Apple documents `kSecAttrSynchronizable` as synchronizing keychain items to the user's other devices through iCloud.
 
 On another iPhone or iPad using the same Apple Account with iCloud Keychain enabled, open Noty Settings and tap **Check iCloud Keychain for a link**. The saved link can appear without typing or remembering it. Tap **Open saved shared-folder link** to open/join the folder, then **Choose sync folder** and select it once in Files. iOS intentionally makes the actual security-scoped Files permission device-local, so Noty cannot silently transfer that grant between devices.
 
