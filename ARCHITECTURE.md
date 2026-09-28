@@ -1,6 +1,6 @@
 # Noty implementation contract
 
-Native iPadOS 18+ SwiftUI app. The project is generated from `project.yml` with XcodeGen. Source files belong under `Noty/` and are automatically included.
+Native iOS/iPadOS 18+ SwiftUI app for iPhone and iPad. The project is generated from `project.yml` with XcodeGen. Source files belong under `Noty/` and are automatically included.
 
 ## Ownership
 

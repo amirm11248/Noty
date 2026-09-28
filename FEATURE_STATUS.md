@@ -6,7 +6,7 @@ This file tracks the gap between the current native iPad app and the larger Good
 
 ## Core workflow
 
-- [x] Native iPadOS 18 SwiftUI app
+- [x] Native iOS/iPadOS 18 SwiftUI app for iPhone and iPad
 - [x] PDF import from Files / share-open flow
 - [x] Modern DOCX import with an offline rich-layout renderer and text fallback
 - [x] Original imported Office file retained with the document package

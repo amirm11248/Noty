@@ -1,10 +1,10 @@
 # noty
 
-A quiet, iPad-first notebook for class notes, books, and writing directly on PDFs. Built with SwiftUI, PencilKit, and PDFKit. The app keeps its editable library on the iPad and can copy it to a folder you choose in iCloud Drive. It can also keep rendered PDF copies in a OneDrive folder exposed through Files.
+A quiet, Apple-device notebook for class notes, books, and writing directly on PDFs. Built with SwiftUI, PencilKit, and PDFKit. The app keeps its editable library on the iPad and can copy it to a folder you choose in iCloud Drive. It can also keep rendered PDF copies in a OneDrive folder exposed through Files.
 
 ## Open and run
 
-Open `Noty.xcodeproj` in Xcode, choose the **Noty** scheme and an iPad simulator or your iPad, then Run. The project targets iPadOS 18 or later. If you change `project.yml`, run `xcodegen generate` before opening Xcode again. The generated project is already included, so XcodeGen is not needed just to build it.
+Open `Noty.xcodeproj` in Xcode, choose the **Noty** scheme and an iPhone/iPad simulator or device, then Run. The project targets iOS/iPadOS 18 or later. If you change `project.yml`, run `xcodegen generate` before opening Xcode again. The generated project is already included, so XcodeGen is not needed just to build it.
 
 For installation on a physical iPad, select your Apple team in Xcode under **Signing & Capabilities**. Free Apple Personal Team provisioning expires after seven days; keep the cloud backup enabled and verify the files appear in iCloud Drive before relying on them for recovery.
 
