@@ -27,9 +27,10 @@ jobs:
           set -o pipefail
           xcodebuild \
             -project Noty.xcodeproj \
-            -target Noty \
+            -scheme Noty \
             -configuration Debug \
             -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO \
             build
 
@@ -38,8 +39,9 @@ jobs:
           set -o pipefail
           xcodebuild \
             -project Noty.xcodeproj \
-            -target NotyTests \
+            -scheme Noty \
             -configuration Debug \
             -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            build-for-testing
