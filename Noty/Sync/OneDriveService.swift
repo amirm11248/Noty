@@ -262,45 +262,25 @@ final class OneDriveService {
         prefix + folderURL.standardizedFileURL.path
     }
 
-    /// Persist the security-scoped grant from UIDocumentPicker so a selected
-    /// File Provider folder (including OneDrive) survives app relaunches.
-    /// Plain bookmarks are retained as a fallback for local/test directories.
+    /// On iOS, persist the directory-picker grant as a minimal bookmark so a
+    /// File Provider folder (including OneDrive) can be reopened after relaunch.
     private static func persistentFolderBookmark(for url: URL) throws -> Data {
-        do {
-            return try url.bookmarkData(
-                options: [.withSecurityScope],
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil
-            )
-        } catch {
-            return try url.bookmarkData(
-                options: [],
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil
-            )
-        }
+        try url.bookmarkData(
+            options: [.minimalBookmark],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
     }
 
     private static func resolvePersistentFolderBookmark(_ data: Data) throws -> (url: URL, isStale: Bool) {
-        var securityScopedIsStale = false
-        do {
-            let url = try URL(
-                resolvingBookmarkData: data,
-                options: [.withSecurityScope],
-                relativeTo: nil,
-                bookmarkDataIsStale: &securityScopedIsStale
-            )
-            return (url, securityScopedIsStale)
-        } catch {
-            var plainIsStale = false
-            let url = try URL(
-                resolvingBookmarkData: data,
-                options: [],
-                relativeTo: nil,
-                bookmarkDataIsStale: &plainIsStale
-            )
-            return (url, plainIsStale)
-        }
+        var isStale = false
+        let url = try URL(
+            resolvingBookmarkData: data,
+            options: [],
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        )
+        return (url, isStale)
     }
 
     private static func coordinatedWrite(_ data: Data, to url: URL) throws {
