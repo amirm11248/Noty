@@ -99,9 +99,11 @@ struct LibraryView: View {
         .onChange(of: documentRevisionSignature) { _, _ in
             refreshSearchResults()
             scheduleOneDriveSync()
+            scheduleBackgroundCloudRetry()
         }
         .onChange(of: folderRevisionSignature) { _, _ in
             refreshSearchResults()
+            scheduleBackgroundCloudRetry()
         }
         .onChange(of: searchText) { _, _ in
             refreshSearchResults()
@@ -128,6 +130,7 @@ struct LibraryView: View {
         .task {
             refreshSearchResults()
             await syncCloudMirrors()
+            scheduleBackgroundCloudRetry()
         }
         .onDisappear {
             guard syncDebounceID != nil else { return }
@@ -1093,7 +1096,14 @@ struct LibraryView: View {
         }
     }
 
+    private func scheduleBackgroundCloudRetry() {
+        NotyBackgroundSyncScheduler.scheduleIfNeeded(
+            hasWork: store.hasICloudMirror || oneDrive.isConnected
+        )
+    }
+
     private func flushCloudMirrorsBeforeSuspension() {
+        scheduleBackgroundCloudRetry()
         syncDebounce?.cancel()
         syncDebounce = nil
         syncDebounceID = nil
@@ -1390,6 +1400,7 @@ private struct LibrarySettingsView: View {
                     }
                     Button("Disconnect", systemImage: "xmark.circle", role: .destructive) {
                         oneDrive.disconnect()
+                        NotyBackgroundSyncScheduler.scheduleIfNeeded(hasWork: store.hasICloudMirror)
                     }
                 }
                 Text("Sign in with Microsoft in the official OneDrive app, then select its writable folder in Files. Noty saves PDF copies after edits while it is open and when you return to it. Deleted Noty pages keep their saved PDF copies here. The selected Files provider may upload them later.")
@@ -1459,6 +1470,7 @@ private struct LibrarySettingsView: View {
             }
             do {
                 try store.configureICloudMirror(folderURL: folderURL)
+                NotyBackgroundSyncScheduler.scheduleIfNeeded(hasWork: true)
                 Task { await store.syncICloudMirror() }
             } catch {
                 errorMessage = error.localizedDescription
@@ -1474,6 +1486,7 @@ private struct LibrarySettingsView: View {
             guard let folderURL = urls.first else { return }
             do {
                 try oneDrive.configureMirrorFolder(folderURL: folderURL)
+                NotyBackgroundSyncScheduler.scheduleIfNeeded(hasWork: true)
                 Task { await oneDrive.syncAllPDFs(store: store) }
             } catch {
                 errorMessage = error.localizedDescription
