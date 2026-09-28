@@ -105,7 +105,13 @@ private struct NotyMirrorSynchronizer {
     private let localManifest: NotyStoreManifest
     private let fileManager = FileManager.default
 
-    private var backupRootURL: URL { selectedFolderURL.appendingPathComponent("Noty Backup", isDirectory: true) }
+    private var preferredSyncRootURL: URL { selectedFolderURL.appendingPathComponent("Noty Sync", isDirectory: true) }
+    private var legacyBackupRootURL: URL { selectedFolderURL.appendingPathComponent("Noty Backup", isDirectory: true) }
+    private var backupRootURL: URL {
+        if fileManager.fileExists(atPath: preferredSyncRootURL.path) { return preferredSyncRootURL }
+        if fileManager.fileExists(atPath: legacyBackupRootURL.path) { return legacyBackupRootURL }
+        return preferredSyncRootURL
+    }
     private var snapshotsURL: URL { backupRootURL.appendingPathComponent("Snapshots", isDirectory: true) }
     private var packagesURL: URL { backupRootURL.appendingPathComponent("Packages", isDirectory: true) }
     private var currentURL: URL { backupRootURL.appendingPathComponent("Current.json") }
