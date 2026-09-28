@@ -17,14 +17,18 @@ This file tracks the gap between the current native iPad app and the larger Good
 - [x] PencilKit eraser/lasso/ruler through the native tool picker
 - [x] Undo / redo
 - [x] Manual straight-line, rectangle and ellipse insertion
-- [x] Text boxes with move, resize, edit and font-size controls
+- [x] Text boxes with move/resize/edit, font family, size, bold, italic, underline, color and alignment
 - [x] On-device handwriting OCR, searchable OCR sidecars and handwriting-to-text
 - [x] Search document names, folders, typed text, OCR handwriting and imported PDF text
 - [x] Add, delete, duplicate and reorder pages
 - [x] Page thumbnails
+- [x] Pinch/page zoom from 65% to 300%
+- [x] Insert photos as movable/resizable/rotatable page objects
+- [x] Page bookmarks with quick-jump menu
 - [x] Blank, ruled, grid and dotted paper
 - [x] Notes and book documents
 - [x] Nested folders, recents, document favorites and sorting
+- [x] Restorable in-app Trash with permanent-delete / empty-trash actions
 - [x] Full annotated PDF export
 - [x] High-resolution current-page PNG export
 - [x] Basic full-screen presentation view
@@ -66,18 +70,17 @@ These are not implemented and should not be advertised as finished:
 - [ ] Automatic shape recognition
 - [ ] Dashed/dotted drawing strokes
 - [ ] Scribble-to-erase gesture
-- [ ] Dedicated zoom-writing window / real canvas zoom workflow
+- [ ] Dedicated Goodnotes-style zoom-writing window (normal pinch/page zoom is implemented)
 - [ ] Smart Ink-style handwriting reflow/editing and handwriting spell correction
 - [ ] Notebook covers and custom covers
 - [ ] Cornell, planner, music and user-imported templates
 - [ ] Multiple paper sizes, page colors and per-page orientation
-- [ ] Page bookmarks, document outline / table of contents and internal page links
+- [ ] Document outline / table of contents and internal page links (page bookmarks are implemented)
 - [ ] Password-protected notebooks
 - [ ] Semantic PDF text selection/highlight annotations; current highlighter is PencilKit ink
-- [ ] Rich text styles such as font family, bold, italic, underline, alignment and lists
-- [ ] Image/photo objects, stickers, reusable elements, GIFs and GIPHY
+- [ ] Paragraph/list formatting beyond the implemented font family, bold, italic, underline, color and alignment controls
+- [ ] Stickers, reusable elements, GIFs and GIPHY (image/photo objects are implemented)
 - [ ] Presentation laser pointer and dedicated external-display audience controls
-- [ ] Restorable in-app Trash UI
 - [ ] Infinite whiteboards
 - [ ] Flowing Notion/Docs-style text documents
 - [ ] Collaboration and shared live editing

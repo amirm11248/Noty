@@ -95,6 +95,12 @@ enum NotyExportService {
             drawTemplate(page.template, in: cgContext)
         }
 
+        for pageImage in page.images {
+            if let image = store.pageImage(documentID: documentID, pageID: page.id, image: pageImage) {
+                drawPageImage(pageImage, image: image, in: cgContext)
+            }
+        }
+
         let drawing = store.drawing(documentID: documentID, pageID: page.id)
         if !drawing.strokes.isEmpty {
             // High-resolution transparent raster keeps PencilKit pressure, blend and
@@ -179,6 +185,20 @@ enum NotyExportService {
         context.restoreGState()
     }
 
+    private static func drawPageImage(_ pageImage: NotyPageImage, image: UIImage, in context: CGContext) {
+        let rect = CGRect(
+            x: CGFloat(pageImage.x),
+            y: CGFloat(pageImage.y),
+            width: CGFloat(pageImage.width),
+            height: CGFloat(pageImage.height)
+        )
+        context.saveGState()
+        context.translateBy(x: rect.midX, y: rect.midY)
+        context.rotate(by: CGFloat(pageImage.rotationDegrees * .pi / 180))
+        image.draw(in: CGRect(x: -rect.width / 2, y: -rect.height / 2, width: rect.width, height: rect.height))
+        context.restoreGState()
+    }
+
     private static func drawTextBox(_ box: NotyTextBox, in context: CGContext) {
         let rect = CGRect(x: CGFloat(box.x), y: CGFloat(box.y), width: CGFloat(box.width), height: CGFloat(box.height))
         let insetRect = rect.insetBy(dx: 9, dy: 8)
@@ -197,11 +217,29 @@ enum NotyExportService {
 
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: max(6, CGFloat(box.fontSize)), weight: .regular),
-            .foregroundColor: UIColor(red: 55 / 255, green: 53 / 255, blue: 47 / 255, alpha: 1),
+        switch box.alignment {
+        case .leading: paragraph.alignment = .left
+        case .center: paragraph.alignment = .center
+        case .trailing: paragraph.alignment = .right
+        }
+
+        let pointSize = max(6, CGFloat(box.fontSize))
+        let baseFont = box.fontName.flatMap { UIFont(name: $0, size: pointSize) }
+            ?? UIFont.systemFont(ofSize: pointSize)
+        var traits = baseFont.fontDescriptor.symbolicTraits
+        if box.isBold { traits.insert(.traitBold) }
+        if box.isItalic { traits.insert(.traitItalic) }
+        let descriptor = baseFont.fontDescriptor.withSymbolicTraits(traits) ?? baseFont.fontDescriptor
+        let styledFont = UIFont(descriptor: descriptor, size: pointSize)
+
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: styledFont,
+            .foregroundColor: color(hex: box.colorHex),
             .paragraphStyle: paragraph
         ]
+        if box.isUnderlined {
+            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        }
         let attributedText = NSAttributedString(string: box.text, attributes: attributes)
         let textBounds = CGRect(
             x: insetRect.minX,
@@ -221,6 +259,17 @@ enum NotyExportService {
         context.scaleBy(x: 1, y: -1)
         CTFrameDraw(frame, context)
         context.restoreGState()
+    }
+
+    private static func color(hex: String) -> UIColor {
+        let digits = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        let value = UInt64(digits, radix: 16) ?? 0x37352F
+        return UIColor(
+            red: CGFloat((value >> 16) & 0xFF) / 255,
+            green: CGFloat((value >> 8) & 0xFF) / 255,
+            blue: CGFloat(value & 0xFF) / 255,
+            alpha: 1
+        )
     }
 
     private static func exportDirectory() throws -> URL {

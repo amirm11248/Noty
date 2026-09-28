@@ -1,5 +1,6 @@
 import PDFKit
 import PencilKit
+import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -13,6 +14,8 @@ struct DocumentEditorView: View {
     @State private var selectedPageID: UUID?
     @State private var selectedTextBoxID: UUID?
     @State private var editingTextBoxID: UUID?
+    @State private var selectedImageID: UUID?
+    @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isPresentationMode = false
     @State private var isToolPickerVisible = false
     @State private var isShowingThumbnails = true
@@ -22,6 +25,9 @@ struct DocumentEditorView: View {
     @State private var exportError: String?
     @State private var sourcePDF: PDFDocument?
     @State private var recognitionMessage: String?
+    @State private var imageImportError: String?
+    @State private var zoomScale: CGFloat = 1
+    @State private var zoomBaseScale: CGFloat = 1
     @State private var inkType: EditorInkType = .ballPen
     @State private var inkColorHex = "37352F"
     @State private var inkWidth = 2.5
@@ -57,6 +63,26 @@ struct DocumentEditorView: View {
                 selectedPageID = pageIDs.first
                 selectedTextBoxID = nil
                 editingTextBoxID = nil
+                selectedImageID = nil
+            }
+        }
+        .onChange(of: selectedPhotoItem) { _, item in
+            guard let item else { return }
+            Task { @MainActor in
+                defer { selectedPhotoItem = nil }
+                do {
+                    guard let data = try await item.loadTransferable(type: Data.self),
+                          let page = selectedPage else {
+                        throw NotyStoreError.invalidImage
+                    }
+                    let image = try store.addPageImage(data: data, documentID: documentID, pageID: page.id)
+                    selectedImageID = image.id
+                    selectedTextBoxID = nil
+                    editingTextBoxID = nil
+                    isToolPickerVisible = false
+                } catch {
+                    imageImportError = error.localizedDescription
+                }
             }
         }
         .alert("Rename document", isPresented: $isShowingRename) {
@@ -73,6 +99,14 @@ struct DocumentEditorView: View {
             Button("OK", role: .cancel) { exportError = nil }
         } message: {
             Text(exportError ?? "Please try again.")
+        }
+        .alert("Couldn’t add image", isPresented: Binding(
+            get: { imageImportError != nil },
+            set: { if !$0 { imageImportError = nil } }
+        )) {
+            Button("OK", role: .cancel) { imageImportError = nil }
+        } message: {
+            Text(imageImportError ?? "Please try another image.")
         }
         .alert("Handwriting to text", isPresented: Binding(
             get: { recognitionMessage != nil },
@@ -358,6 +392,48 @@ struct DocumentEditorView: View {
                 .disabled((selectedPageIndex(in: document) ?? 0) >= document.pages.count - 1)
                 .accessibilityLabel("Next page")
 
+                Menu {
+                    ForEach([0.75, 1.0, 1.25, 1.5, 2.0, 2.5], id: \.self) { scale in
+                        Button {
+                            zoomScale = CGFloat(scale)
+                            zoomBaseScale = CGFloat(scale)
+                        } label: {
+                            if abs(zoomScale - CGFloat(scale)) < 0.01 {
+                                Label("\(Int(scale * 100))%", systemImage: "checkmark")
+                            } else {
+                                Text("\(Int(scale * 100))%")
+                            }
+                        }
+                    }
+                    Button("Reset zoom", systemImage: "arrow.counterclockwise") {
+                        zoomScale = 1
+                        zoomBaseScale = 1
+                    }
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                }
+                .accessibilityLabel("Page zoom")
+
+                if document.pages.contains(where: \.isBookmarked) {
+                    Menu {
+                        ForEach(Array(document.pages.enumerated()), id: \.element.id) { index, bookmarkedPage in
+                            if bookmarkedPage.isBookmarked {
+                                Button {
+                                    selectedPageID = bookmarkedPage.id
+                                    selectedTextBoxID = nil
+                                    editingTextBoxID = nil
+                                    selectedImageID = nil
+                                } label: {
+                                    Label(bookmarkedPage.bookmarkTitle ?? "Page \(index + 1)", systemImage: "bookmark.fill")
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "bookmark")
+                    }
+                    .accessibilityLabel("Bookmarked pages")
+                }
+
                 toolbarDivider
 
                 Button { canvasController.undo() } label: {
@@ -489,6 +565,71 @@ struct DocumentEditorView: View {
                 .disabled(selectedPage == nil)
                 .accessibilityLabel("Add text box")
 
+                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                    Image(systemName: "photo.badge.plus")
+                        .frame(width: 30, height: 30)
+                }
+                .disabled(selectedPage == nil)
+                .accessibilityLabel("Add photo")
+
+                if let page = selectedPage, !page.images.isEmpty {
+                    Menu {
+                        ForEach(Array(page.images.enumerated()), id: \.element.id) { index, image in
+                            Button {
+                                selectedImageID = image.id
+                                selectedTextBoxID = nil
+                                editingTextBoxID = nil
+                                isToolPickerVisible = false
+                            } label: {
+                                if selectedImageID == image.id {
+                                    Label("Image \(index + 1)", systemImage: "checkmark")
+                                } else {
+                                    Label("Image \(index + 1)", systemImage: "photo")
+                                }
+                            }
+                        }
+                        if selectedImageID != nil {
+                            Divider()
+                            Button("Done selecting image", systemImage: "checkmark") {
+                                selectedImageID = nil
+                            }
+                        }
+                    } label: {
+                        Image(systemName: selectedImageID == nil ? "photo.on.rectangle" : "photo.fill.on.rectangle.fill")
+                    }
+                    .accessibilityLabel("Select page image")
+                }
+
+                if let page = selectedPage,
+                   let selectedImageID,
+                   let selectedImage = page.images.first(where: { $0.id == selectedImageID }) {
+                    Button {
+                        updatePageImage(page, imageID: selectedImage.id) { $0.rotationDegrees -= 90 }
+                    } label: {
+                        Image(systemName: "rotate.left")
+                    }
+                    .accessibilityLabel("Rotate image left")
+
+                    Button {
+                        updatePageImage(page, imageID: selectedImage.id) { $0.rotationDegrees += 90 }
+                    } label: {
+                        Image(systemName: "rotate.right")
+                    }
+                    .accessibilityLabel("Rotate image right")
+
+                    Button(role: .destructive) {
+                        store.updatePageImages(
+                            documentID: documentID,
+                            pageID: page.id,
+                            images: page.images.filter { $0.id != selectedImage.id }
+                        )
+                        self.selectedImageID = nil
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .accessibilityLabel("Delete image")
+                }
+
                 if let page = selectedPage {
                     Button { convertHandwritingToText(page) } label: {
                         Image(systemName: "character.book.closed")
@@ -499,23 +640,72 @@ struct DocumentEditorView: View {
                 if let selectedTextBoxID, let page = selectedPage,
                    let textBox = page.textBoxes.first(where: { $0.id == selectedTextBoxID }) {
                     Menu {
-                        Section("Text size") {
-                            ForEach([14.0, 18.0, 22.0, 28.0, 36.0], id: \.self) { size in
+                        Section("Font") {
+                            Button {
+                                updateTextBox(page, boxID: textBox.id) { $0.fontName = nil }
+                            } label: {
+                                if textBox.fontName == nil { Label("System", systemImage: "checkmark") }
+                                else { Text("System") }
+                            }
+                            ForEach(["Avenir Next", "Georgia", "Courier New"], id: \.self) { fontName in
                                 Button {
-                                    updateTextBoxFontSize(page, boxID: textBox.id, size: size)
+                                    updateTextBox(page, boxID: textBox.id) { $0.fontName = fontName }
                                 } label: {
-                                    if textBox.fontSize == size {
-                                        Label("\(Int(size)) pt", systemImage: "checkmark")
-                                    } else {
-                                        Text("\(Int(size)) pt")
-                                    }
+                                    if textBox.fontName == fontName { Label(fontName, systemImage: "checkmark") }
+                                    else { Text(fontName) }
+                                }
+                            }
+                        }
+                        Section("Text size") {
+                            ForEach([12.0, 14.0, 18.0, 22.0, 28.0, 36.0, 48.0], id: \.self) { size in
+                                Button {
+                                    updateTextBox(page, boxID: textBox.id) { $0.fontSize = size }
+                                } label: {
+                                    if textBox.fontSize == size { Label("\(Int(size)) pt", systemImage: "checkmark") }
+                                    else { Text("\(Int(size)) pt") }
+                                }
+                            }
+                        }
+                        Section("Style") {
+                            Button {
+                                updateTextBox(page, boxID: textBox.id) { $0.isBold.toggle() }
+                            } label: {
+                                Label("Bold", systemImage: textBox.isBold ? "checkmark" : "bold")
+                            }
+                            Button {
+                                updateTextBox(page, boxID: textBox.id) { $0.isItalic.toggle() }
+                            } label: {
+                                Label("Italic", systemImage: textBox.isItalic ? "checkmark" : "italic")
+                            }
+                            Button {
+                                updateTextBox(page, boxID: textBox.id) { $0.isUnderlined.toggle() }
+                            } label: {
+                                Label("Underline", systemImage: textBox.isUnderlined ? "checkmark" : "underline")
+                            }
+                        }
+                        Section("Alignment") {
+                            ForEach(NotyTextAlignment.allCases, id: \.self) { alignment in
+                                Button {
+                                    updateTextBox(page, boxID: textBox.id) { $0.alignment = alignment }
+                                } label: {
+                                    Label(alignment.editorLabel, systemImage: textBox.alignment == alignment ? "checkmark" : alignment.symbolName)
+                                }
+                            }
+                        }
+                        Section("Color") {
+                            ForEach(["37352F", "D34836", "2383E2", "2F8F4E", "E3A008"], id: \.self) { colorHex in
+                                Button {
+                                    updateTextBox(page, boxID: textBox.id) { $0.colorHex = colorHex }
+                                } label: {
+                                    Label(colorName(for: colorHex), systemImage: textBox.colorHex == colorHex ? "checkmark.circle.fill" : "circle.fill")
+                                        .tint(Color(hex: colorHex))
                                 }
                             }
                         }
                     } label: {
-                        Image(systemName: "textformat.size")
+                        Image(systemName: "textformat")
                     }
-                    .accessibilityLabel("Text size")
+                    .accessibilityLabel("Text formatting")
 
                     Button {
                         editingTextBoxID = editingTextBoxID == textBox.id ? nil : textBox.id
@@ -557,6 +747,15 @@ struct DocumentEditorView: View {
                                 }
                             } label: {
                                 Label("Present pages", systemImage: "play.rectangle")
+                            }
+                            Button {
+                                store.updatePageBookmark(
+                                    documentID: documentID,
+                                    pageID: page.id,
+                                    isBookmarked: !page.isBookmarked
+                                )
+                            } label: {
+                                Label(page.isBookmarked ? "Remove page bookmark" : "Bookmark page", systemImage: page.isBookmarked ? "bookmark.slash" : "bookmark")
                             }
                             Button {
                                 addPage(template: page.template)
@@ -644,33 +843,50 @@ struct DocumentEditorView: View {
             GeometryReader { proxy in
                 let availableWidth = max(proxy.size.width - 48, 100)
                 let availableHeight = max(proxy.size.height - 40, 100)
-                let pageWidth = min(availableWidth, availableHeight * EditorCanvas.width / EditorCanvas.height, 760)
-                let pageHeight = pageWidth * EditorCanvas.height / EditorCanvas.width
+                let baseWidth = min(availableWidth, availableHeight * EditorCanvas.width / EditorCanvas.height, 760)
+                let baseHeight = baseWidth * EditorCanvas.height / EditorCanvas.width
+                let pageWidth = baseWidth * zoomScale
+                let pageHeight = baseHeight * zoomScale
 
-                ZStack {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.white)
-                        .frame(width: pageWidth + 1, height: pageHeight + 1)
-                        .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 2)
+                ScrollView([.horizontal, .vertical]) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color.white)
+                            .frame(width: pageWidth + 1, height: pageHeight + 1)
+                            .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 2)
 
-                    EditablePageCanvas(
-                        documentID: documentID,
-                        page: page,
-                        store: store,
-                        sourcePDF: sourcePDF,
-                        canvasController: canvasController,
-                        inkSettings: inkSettings,
-                        isToolPickerVisible: isToolPickerVisible,
-                        selectedTextBoxID: $selectedTextBoxID,
-                        editingTextBoxID: $editingTextBoxID,
-                        onDrawingChanged: { store.saveDrawing($0, documentID: documentID, pageID: page.id) },
-                        onTextBoxesChanged: { store.updateTextBoxes(documentID: documentID, pageID: page.id, textBoxes: $0) }
-                    )
-                    .frame(width: pageWidth, height: pageHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 2))
-                    .overlay(RoundedRectangle(cornerRadius: 2).stroke(EditorPalette.border.opacity(0.7), lineWidth: 0.7))
+                        EditablePageCanvas(
+                            documentID: documentID,
+                            page: page,
+                            store: store,
+                            sourcePDF: sourcePDF,
+                            canvasController: canvasController,
+                            inkSettings: inkSettings,
+                            isToolPickerVisible: isToolPickerVisible,
+                            selectedTextBoxID: $selectedTextBoxID,
+                            editingTextBoxID: $editingTextBoxID,
+                            selectedImageID: $selectedImageID,
+                            onDrawingChanged: { store.saveDrawing($0, documentID: documentID, pageID: page.id) },
+                            onTextBoxesChanged: { store.updateTextBoxes(documentID: documentID, pageID: page.id, textBoxes: $0) },
+                            onImagesChanged: { store.updatePageImages(documentID: documentID, pageID: page.id, images: $0) }
+                        )
+                        .frame(width: pageWidth, height: pageHeight)
+                        .clipShape(RoundedRectangle(cornerRadius: 2))
+                        .overlay(RoundedRectangle(cornerRadius: 2).stroke(EditorPalette.border.opacity(0.7), lineWidth: 0.7))
+                    }
+                    .frame(minWidth: max(proxy.size.width, pageWidth + 48), minHeight: max(proxy.size.height, pageHeight + 40))
+                    .padding(20)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .scrollIndicators(.visible)
+                .simultaneousGesture(
+                    MagnificationGesture()
+                        .onChanged { magnification in
+                            zoomScale = min(max(zoomBaseScale * magnification, 0.65), 3)
+                        }
+                        .onEnded { _ in
+                            zoomBaseScale = zoomScale
+                        }
+                )
             }
             .background(EditorPalette.workspace)
         } else {
@@ -719,6 +935,7 @@ struct DocumentEditorView: View {
             selectedPageID = store.documents.first(where: { $0.id == documentID })?.pages.last?.id
         }
         selectedTextBoxID = nil
+        selectedImageID = nil
     }
 
     private func duplicatePage(_ page: NotyPage) {
@@ -726,6 +943,7 @@ struct DocumentEditorView: View {
         selectedPageID = copy.id
         selectedTextBoxID = nil
         editingTextBoxID = nil
+        selectedImageID = nil
     }
 
     private func moveCurrentPage(in document: NotyDocument, by offset: Int) {
@@ -752,6 +970,7 @@ struct DocumentEditorView: View {
         store.updateTextBoxes(documentID: documentID, pageID: page.id, textBoxes: boxes)
         selectedTextBoxID = box.id
         editingTextBoxID = box.id
+        selectedImageID = nil
         isToolPickerVisible = false
     }
 
@@ -761,11 +980,18 @@ struct DocumentEditorView: View {
         editingTextBoxID = nil
     }
 
-    private func updateTextBoxFontSize(_ page: NotyPage, boxID: UUID, size: Double) {
+    private func updateTextBox(_ page: NotyPage, boxID: UUID, mutation: (inout NotyTextBox) -> Void) {
         var boxes = page.textBoxes
         guard let index = boxes.firstIndex(where: { $0.id == boxID }) else { return }
-        boxes[index].fontSize = size
+        mutation(&boxes[index])
         store.updateTextBoxes(documentID: documentID, pageID: page.id, textBoxes: boxes)
+    }
+
+    private func updatePageImage(_ page: NotyPage, imageID: UUID, mutation: (inout NotyPageImage) -> Void) {
+        var images = page.images
+        guard let index = images.firstIndex(where: { $0.id == imageID }) else { return }
+        mutation(&images[index])
+        store.updatePageImages(documentID: documentID, pageID: page.id, images: images)
     }
 
     private func convertHandwritingToText(_ page: NotyPage) {
@@ -817,8 +1043,10 @@ private struct EditablePageCanvas: View {
     let isToolPickerVisible: Bool
     @Binding var selectedTextBoxID: UUID?
     @Binding var editingTextBoxID: UUID?
+    @Binding var selectedImageID: UUID?
     let onDrawingChanged: (PKDrawing) -> Void
     let onTextBoxesChanged: ([NotyTextBox]) -> Void
+    let onImagesChanged: ([NotyPageImage]) -> Void
 
     var body: some View {
         GeometryReader { proxy in
@@ -827,6 +1055,22 @@ private struct EditablePageCanvas: View {
                 ZStack(alignment: .topLeading) {
                     PageBackground(documentID: documentID, page: page, sourcePDF: sourcePDF, imageSize: CGSize(width: 1836, height: 2376))
                         .frame(width: EditorCanvas.width, height: EditorCanvas.height)
+
+                    ForEach(page.images) { pageImage in
+                        if let image = store.pageImage(documentID: documentID, pageID: page.id, image: pageImage) {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: CGFloat(pageImage.width), height: CGFloat(pageImage.height))
+                                .clipped()
+                                .rotationEffect(.degrees(pageImage.rotationDegrees))
+                                .position(
+                                    x: CGFloat(pageImage.x + pageImage.width / 2),
+                                    y: CGFloat(pageImage.y + pageImage.height / 2)
+                                )
+                                .allowsHitTesting(false)
+                        }
+                    }
 
                     PencilCanvasView(
                         drawing: store.drawing(documentID: documentID, pageID: page.id),
@@ -846,6 +1090,7 @@ private struct EditablePageCanvas: View {
                             isEditing: editingTextBoxID == box.id,
                             onSelect: {
                                 selectedTextBoxID = box.id
+                                selectedImageID = nil
                                 if editingTextBoxID != box.id { editingTextBoxID = nil }
                             },
                             onTextChanged: { text in
@@ -867,6 +1112,30 @@ private struct EditablePageCanvas: View {
                                 updated[index].width = Double(min(max(size.width, 80), EditorCanvas.width - CGFloat(updated[index].x)))
                                 updated[index].height = Double(min(max(size.height, 42), EditorCanvas.height - CGFloat(updated[index].y)))
                                 onTextBoxesChanged(updated)
+                            }
+                        )
+                    }
+
+                    if let selectedImageID,
+                       let selectedImage = page.images.first(where: { $0.id == selectedImageID }) {
+                        EditableImageSelection(
+                            image: selectedImage,
+                            onMove: { origin in
+                                var updated = page.images
+                                guard let index = updated.firstIndex(where: { $0.id == selectedImage.id }) else { return }
+                                updated[index].x = Double(min(max(origin.x, 0), EditorCanvas.width - CGFloat(updated[index].width)))
+                                updated[index].y = Double(min(max(origin.y, 0), EditorCanvas.height - CGFloat(updated[index].height)))
+                                onImagesChanged(updated)
+                            },
+                            onResize: { size in
+                                var updated = page.images
+                                guard let index = updated.firstIndex(where: { $0.id == selectedImage.id }) else { return }
+                                let aspect = max(CGFloat(updated[index].width / max(updated[index].height, 1)), 0.05)
+                                let width = min(max(size.width, 60), EditorCanvas.width - CGFloat(updated[index].x))
+                                let height = min(max(width / aspect, 60), EditorCanvas.height - CGFloat(updated[index].y))
+                                updated[index].width = Double(width)
+                                updated[index].height = Double(height)
+                                onImagesChanged(updated)
                             }
                         )
                     }
@@ -1239,6 +1508,82 @@ private struct PageTemplateView: View {
     }
 }
 
+private struct EditableImageSelection: View {
+    let image: NotyPageImage
+    let onMove: (CGPoint) -> Void
+    let onResize: (CGSize) -> Void
+
+    @State private var dragOffset = CGSize.zero
+    @State private var dragOrigin = CGPoint.zero
+    @State private var resizeOrigin: CGSize?
+    @State private var isResizing = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 5)
+            .fill(Color.clear)
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(EditorPalette.accent, style: StrokeStyle(lineWidth: 1.4, dash: [5, 3]))
+            )
+            .overlay(alignment: .bottomTrailing) {
+                Circle()
+                    .fill(EditorPalette.paper)
+                    .frame(width: 14, height: 14)
+                    .overlay(Circle().stroke(EditorPalette.accent, lineWidth: 1.5))
+                    .offset(x: 5, y: 5)
+                    .contentShape(Rectangle().inset(by: -10))
+                    .highPriorityGesture(
+                        DragGesture(minimumDistance: 2)
+                            .onChanged { _ in
+                                if resizeOrigin == nil {
+                                    resizeOrigin = CGSize(width: image.width, height: image.height)
+                                }
+                                isResizing = true
+                            }
+                            .onEnded { value in
+                                guard let resizeOrigin else { return }
+                                onResize(CGSize(
+                                    width: resizeOrigin.width + value.translation.width,
+                                    height: resizeOrigin.height + value.translation.height
+                                ))
+                                self.resizeOrigin = nil
+                                isResizing = false
+                            }
+                    )
+                    .accessibilityLabel("Resize image")
+            }
+            .frame(width: CGFloat(image.width), height: CGFloat(image.height))
+            .rotationEffect(.degrees(image.rotationDegrees))
+            .position(
+                x: CGFloat(image.x + image.width / 2),
+                y: CGFloat(image.y + image.height / 2)
+            )
+            .offset(dragOffset)
+            .gesture(
+                DragGesture(minimumDistance: 5)
+                    .onChanged { value in
+                        guard !isResizing else { return }
+                        if dragOrigin == .zero {
+                            dragOrigin = CGPoint(x: CGFloat(image.x), y: CGFloat(image.y))
+                        }
+                        dragOffset = value.translation
+                    }
+                    .onEnded { value in
+                        guard !isResizing else { return }
+                        onMove(CGPoint(
+                            x: dragOrigin.x + value.translation.width,
+                            y: dragOrigin.y + value.translation.height
+                        ))
+                        dragOffset = .zero
+                        dragOrigin = .zero
+                    }
+            )
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Selected image")
+            .accessibilityHint("Drag to move. Drag the corner handle to resize.")
+    }
+}
+
 private struct EditableTextBox: View {
     let box: NotyTextBox
     let scale: CGFloat
@@ -1256,21 +1601,33 @@ private struct EditableTextBox: View {
     @State private var isResizing = false
     @FocusState private var isFocused: Bool
 
+    private var styledFont: Font {
+        let size = max(10, CGFloat(box.fontSize) * scale)
+        var font = box.fontName.map { Font.custom($0, size: size) } ?? Font.system(size: size)
+        if box.isBold { font = font.weight(.bold) }
+        if box.isItalic { font = font.italic() }
+        return font
+    }
+
     var body: some View {
         Group {
             if isEditing {
                 TextEditor(text: $text)
-                .font(.system(size: max(10, CGFloat(box.fontSize) * scale), weight: .regular))
+                    .font(styledFont)
+                    .foregroundStyle(Color(hex: box.colorHex))
+                    .multilineTextAlignment(box.alignment.textAlignment)
                     .scrollContentBackground(.hidden)
                     .focused($isFocused)
                     .onChange(of: text) { _, newValue in onTextChanged(newValue) }
                     .padding(5 * scale)
             } else {
                 Text(box.text.isEmpty ? " " : box.text)
-                    .font(.system(size: max(10, CGFloat(box.fontSize) * scale), weight: .regular))
-                    .foregroundStyle(EditorPalette.ink)
+                    .font(styledFont)
+                    .underline(box.isUnderlined)
+                    .foregroundStyle(Color(hex: box.colorHex))
+                    .multilineTextAlignment(box.alignment.textAlignment)
                     .lineLimit(nil)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: box.alignment.frameAlignment)
                     .padding(9 * scale)
                     .contentShape(Rectangle())
             }
@@ -1352,6 +1709,40 @@ private struct EditableTextBox: View {
     }
 }
 
+private extension NotyTextAlignment {
+    var editorLabel: String {
+        switch self {
+        case .leading: "Left"
+        case .center: "Center"
+        case .trailing: "Right"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .leading: "text.alignleft"
+        case .center: "text.aligncenter"
+        case .trailing: "text.alignright"
+        }
+    }
+
+    var textAlignment: TextAlignment {
+        switch self {
+        case .leading: .leading
+        case .center: .center
+        case .trailing: .trailing
+        }
+    }
+
+    var frameAlignment: Alignment {
+        switch self {
+        case .leading: .topLeading
+        case .center: .top
+        case .trailing: .topTrailing
+        }
+    }
+}
+
 private struct PageThumbnail: View {
     let documentID: UUID
     let page: NotyPage
@@ -1366,11 +1757,40 @@ private struct PageThumbnail: View {
             VStack(spacing: 6) {
                 ZStack {
                     PageBackground(documentID: documentID, page: page, sourcePDF: sourcePDF, imageSize: CGSize(width: 360, height: 466))
+                    GeometryReader { proxy in
+                        let scale = proxy.size.width / EditorCanvas.width
+                        ForEach(page.images) { pageImage in
+                            if let image = store.pageImage(documentID: documentID, pageID: page.id, image: pageImage) {
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(
+                                        width: CGFloat(pageImage.width) * scale,
+                                        height: CGFloat(pageImage.height) * scale
+                                    )
+                                    .clipped()
+                                    .rotationEffect(.degrees(pageImage.rotationDegrees))
+                                    .position(
+                                        x: CGFloat(pageImage.x + pageImage.width / 2) * scale,
+                                        y: CGFloat(pageImage.y + pageImage.height / 2) * scale
+                                    )
+                            }
+                        }
+                    }
+                    .allowsHitTesting(false)
+
                     let drawing = store.drawing(documentID: documentID, pageID: page.id)
                     if !drawing.strokes.isEmpty {
                         Image(uiImage: drawing.image(from: CGRect(x: 0, y: 0, width: EditorCanvas.width, height: EditorCanvas.height), scale: 0.35))
                             .resizable()
                             .scaledToFill()
+                    }
+                    if page.isBookmarked {
+                        Image(systemName: "bookmark.fill")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(EditorPalette.ink)
+                            .padding(4)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                     }
                 }
                 .aspectRatio(EditorCanvas.width / EditorCanvas.height, contentMode: .fit)
