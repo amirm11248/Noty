@@ -159,56 +159,153 @@ struct DocumentEditorView: View {
     }
 
     private func presentation(_ document: NotyDocument) -> some View {
-        ZStack(alignment: .topTrailing) {
-            canvasArea(document, sourcePDF: sourcePDF)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(EditorPalette.workspace)
+        GeometryReader { proxy in
+            ZStack {
+                Color.black.opacity(0.96).ignoresSafeArea()
 
-            HStack(spacing: 10) {
-                Button {
-                    moveSelection(in: document, by: -1)
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .frame(width: 32, height: 32)
+                if !isPresenterBlackout, let page = selectedPage {
+                    PresentedPageCanvas(
+                        documentID: documentID,
+                        page: page,
+                        store: store,
+                        sourcePDF: sourcePDF
+                    )
+                    .padding(36)
+                    .transition(.opacity.combined(with: .scale(scale: 0.995)))
                 }
-                .disabled((selectedPageIndex(in: document) ?? 0) == 0)
-                .accessibilityLabel("Previous presentation page")
 
-                Text("\((selectedPageIndex(in: document) ?? 0) + 1) / \(max(document.pages.count, 1))")
-                    .font(.system(size: 12, weight: .medium, design: .rounded).monospacedDigit())
-                    .foregroundStyle(EditorPalette.secondaryInk)
-
-                Button {
-                    moveSelection(in: document, by: 1)
-                } label: {
-                    Image(systemName: "chevron.right")
-                        .frame(width: 32, height: 32)
-                }
-                .disabled((selectedPageIndex(in: document) ?? 0) >= document.pages.count - 1)
-                .accessibilityLabel("Next presentation page")
-
-                Rectangle().fill(EditorPalette.border).frame(width: 1, height: 18)
-
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        isPresentationMode = false
+                if isPresenterBlackout {
+                    VStack(spacing: 8) {
+                        Image(systemName: "moon.fill")
+                            .font(.system(size: 26, weight: .medium))
+                        Text("Screen hidden")
+                            .font(.system(size: 14, weight: .medium))
                     }
-                } label: {
-                    Label("Exit", systemImage: "xmark")
-                        .labelStyle(.iconOnly)
-                        .frame(width: 32, height: 32)
+                    .foregroundStyle(.white.opacity(0.55))
                 }
-                .accessibilityLabel("Exit presentation")
+
+                if isLaserPointerEnabled, let presenterLaserLocation {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 16, height: 16)
+                        .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 2))
+                        .shadow(color: .red.opacity(0.65), radius: 12)
+                        .position(presenterLaserLocation)
+                        .allowsHitTesting(false)
+                }
+
+                if isPresenterControlsVisible {
+                    VStack {
+                        HStack(spacing: 8) {
+                            Button {
+                                moveSelection(in: document, by: -1)
+                                presenterLaserLocation = nil
+                            } label: {
+                                Image(systemName: "chevron.left")
+                                    .frame(width: 32, height: 32)
+                            }
+                            .disabled((selectedPageIndex(in: document) ?? 0) == 0)
+                            .accessibilityLabel("Previous presentation page")
+
+                            Text("\((selectedPageIndex(in: document) ?? 0) + 1) / \(max(document.pages.count, 1))")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
+                                .foregroundStyle(.white.opacity(0.84))
+                                .frame(minWidth: 48)
+
+                            Button {
+                                moveSelection(in: document, by: 1)
+                                presenterLaserLocation = nil
+                            } label: {
+                                Image(systemName: "chevron.right")
+                                    .frame(width: 32, height: 32)
+                            }
+                            .disabled((selectedPageIndex(in: document) ?? 0) >= document.pages.count - 1)
+                            .accessibilityLabel("Next presentation page")
+
+                            Rectangle().fill(Color.white.opacity(0.18)).frame(width: 1, height: 18)
+
+                            Button {
+                                isLaserPointerEnabled.toggle()
+                                if !isLaserPointerEnabled { presenterLaserLocation = nil }
+                            } label: {
+                                Image(systemName: isLaserPointerEnabled ? "laser.burst" : "dot.circle.and.hand.point.up.left.fill")
+                                    .frame(width: 32, height: 32)
+                            }
+                            .foregroundStyle(isLaserPointerEnabled ? Color.red : Color.white)
+                            .accessibilityLabel(isLaserPointerEnabled ? "Turn off laser pointer" : "Turn on laser pointer")
+
+                            Button {
+                                isPresenterBlackout.toggle()
+                                presenterLaserLocation = nil
+                            } label: {
+                                Image(systemName: isPresenterBlackout ? "eye" : "moon")
+                                    .frame(width: 32, height: 32)
+                            }
+                            .accessibilityLabel(isPresenterBlackout ? "Show presentation page" : "Hide presentation page")
+
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    isPresentationMode = false
+                                    isLaserPointerEnabled = false
+                                    presenterLaserLocation = nil
+                                    isPresenterBlackout = false
+                                }
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .frame(width: 32, height: 32)
+                            }
+                            .accessibilityLabel("Exit presentation")
+                        }
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white)
+                        .buttonStyle(PresenterButtonStyle())
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial.opacity(0.9), in: Capsule())
+                        .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.7))
+                        .padding(18)
+
+                        Spacer()
+
+                        Text(isLaserPointerEnabled ? "Drag anywhere to point" : "Swipe left or right for pages · Tap to hide controls")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Color.black.opacity(0.42), in: Capsule())
+                            .padding(.bottom, 18)
+                    }
+                    .transition(.opacity)
+                }
             }
-            .font(.system(size: 13, weight: .medium))
-            .buttonStyle(EditorToolbarButtonStyle())
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().stroke(EditorPalette.border.opacity(0.8), lineWidth: 0.7))
-            .padding(18)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard !isLaserPointerEnabled else { return }
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isPresenterControlsVisible.toggle()
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 3, coordinateSpace: .local)
+                    .onChanged { value in
+                        guard isLaserPointerEnabled else { return }
+                        presenterLaserLocation = CGPoint(
+                            x: min(max(value.location.x, 8), proxy.size.width - 8),
+                            y: min(max(value.location.y, 8), proxy.size.height - 8)
+                        )
+                    }
+                    .onEnded { value in
+                        if isLaserPointerEnabled {
+                            presenterLaserLocation = nil
+                            return
+                        }
+                        guard abs(value.translation.width) > 55,
+                              abs(value.translation.width) > abs(value.translation.height) else { return }
+                        moveSelection(in: document, by: value.translation.width < 0 ? 1 : -1)
+                    }
+            )
         }
-        .background(EditorPalette.workspace.ignoresSafeArea())
+        .background(Color.black.ignoresSafeArea())
         .ignoresSafeArea()
     }
 
@@ -782,6 +879,10 @@ struct DocumentEditorView: View {
                         Section("Page") {
                             Button {
                                 withAnimation(.easeInOut(duration: 0.18)) {
+                                    isPresenterControlsVisible = true
+                                    isLaserPointerEnabled = false
+                                    presenterLaserLocation = nil
+                                    isPresenterBlackout = false
                                     isPresentationMode = true
                                 }
                             } label: {
@@ -1095,6 +1196,96 @@ struct DocumentEditorView: View {
         } catch {
             exportError = error.localizedDescription
         }
+    }
+}
+
+private struct PresentedPageCanvas: View {
+    let documentID: UUID
+    let page: NotyPage
+    let store: NotyStore
+    let sourcePDF: PDFDocument?
+
+    var body: some View {
+        GeometryReader { proxy in
+            let canvasSize = page.canvasSize
+            let scale = min(proxy.size.width / canvasSize.width, proxy.size.height / canvasSize.height)
+            let displayWidth = canvasSize.width * scale
+            let displayHeight = canvasSize.height * scale
+
+            ZStack(alignment: .topLeading) {
+                PageBackground(
+                    documentID: documentID,
+                    page: page,
+                    sourcePDF: sourcePDF,
+                    imageSize: CGSize(width: canvasSize.width * 3, height: canvasSize.height * 3)
+                )
+                .frame(width: canvasSize.width, height: canvasSize.height)
+
+                ForEach(page.images) { pageImage in
+                    if let image = store.pageImage(documentID: documentID, pageID: page.id, image: pageImage) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: CGFloat(pageImage.width), height: CGFloat(pageImage.height))
+                            .clipped()
+                            .rotationEffect(.degrees(pageImage.rotationDegrees))
+                            .position(
+                                x: CGFloat(pageImage.x + pageImage.width / 2),
+                                y: CGFloat(pageImage.y + pageImage.height / 2)
+                            )
+                    }
+                }
+
+                let drawing = store.drawing(documentID: documentID, pageID: page.id)
+                if !drawing.strokes.isEmpty {
+                    Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: canvasSize), scale: 2))
+                        .resizable()
+                        .frame(width: canvasSize.width, height: canvasSize.height)
+                }
+
+                ForEach(page.textBoxes) { box in
+                    PresentedTextBox(box: box)
+                }
+            }
+            .frame(width: canvasSize.width, height: canvasSize.height)
+            .scaleEffect(scale, anchor: .topLeading)
+            .frame(width: displayWidth, height: displayHeight, alignment: .topLeading)
+            .clipShape(RoundedRectangle(cornerRadius: 3))
+            .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.16), lineWidth: 0.7))
+            .shadow(color: Color.black.opacity(0.45), radius: 22, x: 0, y: 8)
+            .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+        }
+    }
+}
+
+private struct PresentedTextBox: View {
+    let box: NotyTextBox
+
+    private var styledFont: Font {
+        var font = box.fontName.map { Font.custom($0, size: CGFloat(box.fontSize)) }
+            ?? Font.system(size: CGFloat(box.fontSize))
+        if box.isBold { font = font.weight(.bold) }
+        if box.isItalic { font = font.italic() }
+        return font
+    }
+
+    var body: some View {
+        Text(box.text.isEmpty ? " " : box.text)
+            .font(styledFont)
+            .underline(box.isUnderlined)
+            .foregroundStyle(Color(hex: box.colorHex))
+            .multilineTextAlignment(box.alignment.textAlignment)
+            .frame(
+                width: CGFloat(box.width),
+                height: CGFloat(box.height),
+                alignment: box.alignment.frameAlignment
+            )
+            .padding(.horizontal, 9)
+            .padding(.vertical, 8)
+            .position(
+                x: CGFloat(box.x + box.width / 2),
+                y: CGFloat(box.y + box.height / 2)
+            )
     }
 }
 
@@ -1933,6 +2124,18 @@ private enum EditorPalette {
     static let control = Color.clear
     static let accent = NotionTheme.accent
     static let selection = NotionTheme.inkSecondary.opacity(0.72)
+}
+
+private struct PresenterButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(configuration.isPressed ? Color.white.opacity(0.55) : Color.white)
+            .background(
+                configuration.isPressed ? Color.white.opacity(0.12) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .contentShape(Rectangle())
+    }
 }
 
 private struct EditorToolbarButtonStyle: ButtonStyle {
