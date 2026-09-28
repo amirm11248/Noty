@@ -20,6 +20,7 @@ struct LibraryView: View {
     @State private var backgroundSyncTask: LibraryBackgroundTask?
     @State private var alertMessage: String?
     @State private var searchResults: [NotySearchResult] = []
+    @State private var folderSyncProfile = FolderSyncProfileStore()
     @AppStorage("noty.library.favoriteDocumentIDs") private var favoriteIDsValue = ""
     @AppStorage("noty.library.recentDocumentIDs") private var recentIDsValue = ""
     @AppStorage("noty.library.sortOrder") private var sortOrderValue = LibrarySortOrder.edited.rawValue
@@ -120,6 +121,7 @@ struct LibraryView: View {
             switch phase {
             case .active:
                 refreshSearchResults()
+                folderSyncProfile.refresh()
                 Task { await syncCloudMirrors() }
             case .background:
                 flushCloudMirrorsBeforeSuspension()
@@ -129,6 +131,7 @@ struct LibraryView: View {
         }
         .task {
             refreshSearchResults()
+            folderSyncProfile.refresh()
             await syncCloudMirrors()
             scheduleBackgroundCloudRetry()
         }
@@ -438,15 +441,25 @@ struct LibraryView: View {
                     present(.settings)
                 } label: {
                     HStack(alignment: .top, spacing: 9) {
-                        Image(systemName: isICloudSyncError ? "exclamationmark.triangle" : "arrow.up.circle")
+                        Image(systemName: isICloudSyncError ? "exclamationmark.triangle" : "arrow.triangle.2.circlepath")
                             .font(.system(size: 14))
                             .foregroundStyle(isICloudSyncError ? NotionTheme.danger : NotionTheme.inkSecondary)
                             .padding(.top, 1)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(isICloudSyncError ? "Restore iCloud Drive backup access" : "Choose an iCloud Drive folder for a library backup")
+                            Text(
+                                isICloudSyncError
+                                    ? "Restore folder sync access"
+                                    : (folderSyncProfile.sharedFolderURL == nil ? "Sync your library with a folder" : "Shared sync folder found")
+                            )
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(NotionTheme.ink)
-                            Text(isICloudSyncError ? displayICloudMirrorStatus(store.syncStatus) : "In Files, choose Browse → iCloud Drive, then select a folder.")
+                            Text(
+                                isICloudSyncError
+                                    ? displayICloudMirrorStatus(store.syncStatus)
+                                    : (folderSyncProfile.sharedFolderURL == nil
+                                        ? "Choose the same iCloud Drive folder on each device. Noty merges changes automatically."
+                                        : "Your Apple devices shared a folder link through iCloud Keychain. Open Settings to connect this device.")
+                            )
                                 .font(.system(size: 12))
                                 .foregroundStyle(isICloudSyncError ? NotionTheme.danger : NotionTheme.inkSecondary)
                                 .lineLimit(3)
@@ -468,7 +481,7 @@ struct LibraryView: View {
                         .font(.system(size: 14))
                         .foregroundStyle(isICloudSyncError ? NotionTheme.danger : NotionTheme.inkSecondary)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Selected backup folder · \(store.iCloudMirrorFolderURL?.lastPathComponent ?? "Files folder")")
+                        Text("Sync folder · \(store.iCloudMirrorFolderURL?.lastPathComponent ?? "Files folder")")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(NotionTheme.ink)
                         Text(displayICloudMirrorStatus(store.syncStatus))
@@ -485,7 +498,7 @@ struct LibraryView: View {
                             .font(.system(size: 12, weight: .semibold))
                     }
                     .buttonStyle(NotionIconButtonStyle())
-                    .accessibilityLabel("Sync iCloud Drive now")
+                    .accessibilityLabel("Sync folder now")
                 }
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1119,7 +1132,7 @@ struct LibraryView: View {
             }
         case .settings:
             NavigationStack {
-                LibrarySettingsView(store: store, oneDrive: oneDrive)
+                LibrarySettingsView(store: store, oneDrive: oneDrive, folderSyncProfile: folderSyncProfile)
             }
         }
     }
@@ -1279,7 +1292,7 @@ private enum DeleteTarget {
 }
 
 private enum FolderPickerDestination {
-    case iCloud
+    case syncFolder
     case oneDrive
 }
 
@@ -1432,11 +1445,13 @@ private struct MoveFolderRow: Identifiable {
 private struct LibrarySettingsView: View {
     var store: NotyStore
     var oneDrive: OneDriveService
+    var folderSyncProfile: FolderSyncProfileStore
 
     @Environment(\.dismiss) private var dismiss
     @State private var isChoosingFolder = false
     @State private var folderPickerDestination: FolderPickerDestination?
     @State private var errorMessage: String?
+    @State private var sharedFolderLinkDraft = ""
 
     var body: some View {
         Form {
@@ -1458,20 +1473,24 @@ private struct LibrarySettingsView: View {
             }
 
             Section {
-                LabeledContent("Folder", value: store.iCloudMirrorFolderURL?.lastPathComponent ?? "Not selected")
-                Text("In Files, choose Browse → iCloud Drive and select a folder. Noty saves a local copy there; iPadOS manages any cloud upload.")
+                LabeledContent("Connected folder", value: store.iCloudMirrorFolderURL?.lastPathComponent ?? "Not connected")
+
+                Text("Use the same writable folder on every device. Noty keeps an editable library in that folder and merges newer changes back into the local library.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                Button("Choose iCloud Drive folder", systemImage: "folder.badge.plus") {
-                    presentFolderPicker(.iCloud)
+
+                Button(store.iCloudMirrorFolderURL == nil ? "Choose sync folder" : "Choose another sync folder", systemImage: "folder.badge.plus") {
+                    presentFolderPicker(.syncFolder)
                 }
+
                 if store.iCloudMirrorFolderURL != nil {
-                    Button("Sync iCloud Drive now", systemImage: "arrow.triangle.2.circlepath") {
+                    Button("Sync now", systemImage: "arrow.triangle.2.circlepath") {
                         Task { await store.syncICloudMirror() }
                     }
                 }
+
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Status")
+                    Text("Folder status")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Text(displayICloudMirrorStatus(store.syncStatus))
@@ -1480,10 +1499,48 @@ private struct LibrarySettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                 }
+
+                Divider()
+
+                Text("Optional shared folder link")
+                    .font(.subheadline.weight(.semibold))
+
+                TextField("https://www.icloud.com/…", text: $sharedFolderLinkDraft)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+
+                Button("Save link for my Apple devices", systemImage: "key.icloud") {
+                    saveSharedFolderLink()
+                }
+                .disabled(sharedFolderLinkDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                if let sharedURL = folderSyncProfile.sharedFolderURL {
+                    Button("Open saved shared-folder link", systemImage: "link") {
+                        UIApplication.shared.open(sharedURL, options: [:], completionHandler: nil)
+                    }
+
+                    ShareLink(item: sharedURL) {
+                        Label("Share folder link", systemImage: "square.and.arrow.up")
+                    }
+
+                    Button("Forget saved link on my devices", systemImage: "trash", role: .destructive) {
+                        forgetSharedFolderLink()
+                    }
+                }
+
+                Button("Check iCloud Keychain for a link", systemImage: "arrow.clockwise") {
+                    refreshSharedFolderLink()
+                }
+
+                Text(folderSyncProfile.status)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             } header: {
-                Text("iCloud Drive")
+                Text("Sync with Folder")
             } footer: {
-                Text("Choose the folder under Files → Browse → iCloud Drive. Noty cannot verify when iPadOS has uploaded the copy. Re-select the folder here if access needs to be restored.")
+                Text("For your own devices on the same Apple Account, keep the iCloud Drive folder private and choose it once on each device. A shared-folder link is optional for discovery or other people. Prefer “People You Choose”; “Anyone with the link” plus edit access means anyone who gets that URL can modify the folder. iCloud Keychain can carry a saved link to your other Apple devices, but iOS still requires each device to approve Files access once.")
             }
 
             Section {
@@ -1531,8 +1588,8 @@ private struct LibrarySettingsView: View {
             allowsMultipleSelection: false
         ) { result in
             switch folderPickerDestination {
-            case .iCloud:
-                configureICloudFolder(result)
+            case .syncFolder:
+                configureSyncFolder(result)
             case .oneDrive:
                 configureOneDriveFolder(result)
             case nil:
@@ -1551,6 +1608,12 @@ private struct LibrarySettingsView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .task {
+            folderSyncProfile.refresh()
+            if sharedFolderLinkDraft.isEmpty, let syncedLink = folderSyncProfile.sharedFolderLink {
+                sharedFolderLinkDraft = syncedLink
+            }
+        }
     }
 
     private func presentFolderPicker(_ destination: FolderPickerDestination) {
@@ -1564,7 +1627,7 @@ private struct LibrarySettingsView: View {
             .contains(where: { status.contains($0) })
     }
 
-    private func configureICloudFolder(_ result: Result<[URL], Error>) {
+    private func configureSyncFolder(_ result: Result<[URL], Error>) {
         switch result {
         case .failure(let error):
             if (error as? CocoaError)?.code != .userCancelled { errorMessage = error.localizedDescription }
@@ -1581,6 +1644,31 @@ private struct LibrarySettingsView: View {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func saveSharedFolderLink() {
+        do {
+            try folderSyncProfile.saveSharedFolderLink(sharedFolderLinkDraft)
+            sharedFolderLinkDraft = folderSyncProfile.sharedFolderLink ?? sharedFolderLinkDraft
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func refreshSharedFolderLink() {
+        folderSyncProfile.refresh()
+        if let syncedLink = folderSyncProfile.sharedFolderLink {
+            sharedFolderLinkDraft = syncedLink
+        }
+    }
+
+    private func forgetSharedFolderLink() {
+        do {
+            try folderSyncProfile.forgetSharedFolderLinkEverywhere()
+            sharedFolderLinkDraft = ""
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -1667,11 +1755,13 @@ private struct DocumentPreview: View {
     }
 }
 
-/// Core reports the selected bookmark's display name as “iCloud Drive”. A Files
-/// location can belong to another provider, so avoid claiming cloud delivery.
+/// Keep provider wording neutral: folder sync can point to iCloud Drive or
+/// another writable Files provider.
 private func displayICloudMirrorStatus(_ status: String) -> String {
-    let prefix = "Saved to the selected iCloud Drive folder at "
+    let legacyPrefix = "Saved to the selected iCloud Drive folder at "
+    let folderPrefix = "Saved to the selected sync folder at "
+    let prefix = status.hasPrefix(folderPrefix) ? folderPrefix : legacyPrefix
     guard status.hasPrefix(prefix) else { return status }
     let timestamp = status.dropFirst(prefix.count).components(separatedBy: ";").first ?? ""
-    return "Library saved a copy to the selected Files folder at \(timestamp). Its provider controls any cloud upload."
+    return "Library synced with the selected Files folder at \(timestamp). Its provider controls any cloud upload."
 }

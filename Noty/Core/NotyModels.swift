@@ -242,9 +242,9 @@ enum NotyStoreError: LocalizedError {
         case .invalidImage:
             return "The selected image could not be opened."
         case .iCloudFolderUnavailable:
-            return "iCloud Drive could not access the selected backup folder. Select the folder again in Files."
+            return "Noty could not access the selected sync folder. Select the same folder again in Files."
         case .invalidMirrorSnapshot(let message):
-            return "The Noty backup could not be read: \(message)"
+            return "The Noty sync data could not be read: \(message)"
         }
     }
 }

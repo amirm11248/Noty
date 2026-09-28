@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import Security
 
 /// Mirrors rendered PDFs into a folder the user selected from Files. Selecting
 /// a OneDrive location works through the OneDrive File Provider, so the user
@@ -343,6 +344,149 @@ private enum OneDriveError: LocalizedError {
             return "Choose a writable OneDrive folder in Files to connect."
         case .notAFolder:
             return "The selected location is not a folder. Choose a OneDrive folder in Files."
+        }
+    }
+}
+
+
+// MARK: - Cross-device folder sync profile
+
+/// Stores only the shared-folder discovery link in the user's synchronizable
+/// iCloud Keychain. The notebook data itself remains in the selected Files
+/// folder. A new device can therefore discover the same shared folder without
+/// a Noty account or a separate backend.
+///
+/// The Files security-scoped folder grant is intentionally NOT synchronized:
+/// iOS requires each device to approve access to an external folder once.
+@MainActor
+@Observable
+final class FolderSyncProfileStore {
+    private(set) var sharedFolderLink: String?
+    private(set) var status = "No shared folder link saved for your devices."
+
+    private let keychainService = "com.malik.noty.folder-sync"
+    private let keychainAccount = "shared-folder-link"
+
+    init() {
+        refresh()
+    }
+
+    var sharedFolderURL: URL? {
+        guard let sharedFolderLink else { return nil }
+        return URL(string: sharedFolderLink)
+    }
+
+    func refresh() {
+        var result: CFTypeRef?
+        let statusCode = SecItemCopyMatching(
+            keychainQuery(returnData: true) as CFDictionary,
+            &result
+        )
+
+        switch statusCode {
+        case errSecSuccess:
+            guard
+                let data = result as? Data,
+                let value = String(data: data, encoding: .utf8),
+                !value.isEmpty
+            else {
+                sharedFolderLink = nil
+                status = "The saved folder link could not be read."
+                return
+            }
+            sharedFolderLink = value
+            status = "Shared folder link is available on this device."
+        case errSecItemNotFound:
+            sharedFolderLink = nil
+            status = "No shared folder link saved for your devices."
+        default:
+            sharedFolderLink = nil
+            status = "iCloud Keychain could not read the folder link: \(Self.message(for: statusCode))."
+        }
+    }
+
+    func saveSharedFolderLink(_ rawValue: String) throws {
+        let value = try Self.normalizedSharedFolderLink(rawValue)
+        guard let data = value.data(using: .utf8) else {
+            throw FolderSyncProfileError.invalidLink
+        }
+
+        let updateStatus = SecItemUpdate(
+            keychainQuery(returnData: false) as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+
+        switch updateStatus {
+        case errSecSuccess:
+            break
+        case errSecItemNotFound:
+            var attributes = keychainQuery(returnData: false)
+            attributes[kSecValueData as String] = data
+            attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+            let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+            guard addStatus == errSecSuccess else {
+                throw FolderSyncProfileError.keychain(Self.message(for: addStatus))
+            }
+        default:
+            throw FolderSyncProfileError.keychain(Self.message(for: updateStatus))
+        }
+
+        sharedFolderLink = value
+        status = "Saved to iCloud Keychain for your Apple devices."
+    }
+
+    func forgetSharedFolderLinkEverywhere() throws {
+        let statusCode = SecItemDelete(keychainQuery(returnData: false) as CFDictionary)
+        guard statusCode == errSecSuccess || statusCode == errSecItemNotFound else {
+            throw FolderSyncProfileError.keychain(Self.message(for: statusCode))
+        }
+        sharedFolderLink = nil
+        status = "Shared folder link removed from iCloud Keychain."
+    }
+
+    private func keychainQuery(returnData: Bool) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecAttrSynchronizable as String: kCFBooleanTrue as Any,
+            kSecUseDataProtectionKeychain as String: true
+        ]
+        if returnData {
+            query[kSecReturnData as String] = true
+            query[kSecMatchLimit as String] = kSecMatchLimitOne
+        }
+        return query
+    }
+
+    private static func normalizedSharedFolderLink(_ rawValue: String) throws -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            let url = URL(string: trimmed),
+            let scheme = url.scheme?.lowercased(),
+            ["https", "http"].contains(scheme),
+            url.host != nil
+        else {
+            throw FolderSyncProfileError.invalidLink
+        }
+        return url.absoluteString
+    }
+
+    private static func message(for status: OSStatus) -> String {
+        (SecCopyErrorMessageString(status, nil) as String?) ?? "Keychain error \(status)"
+    }
+}
+
+private enum FolderSyncProfileError: LocalizedError {
+    case invalidLink
+    case keychain(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidLink:
+            return "Enter a valid shared-folder web link, for example the iCloud Drive link created from Files."
+        case .keychain(let message):
+            return "Noty could not save the folder link to iCloud Keychain. \(message)"
         }
     }
 }
