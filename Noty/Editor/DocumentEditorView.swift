@@ -43,6 +43,14 @@ struct DocumentEditorView: View {
         return document.pages.first { $0.id == selectedPageID } ?? document.pages.first
     }
 
+    private var styledFont: Font {
+        let size = max(10, CGFloat(box.fontSize) * scale)
+        var font = box.fontName.map { Font.custom($0, size: size) } ?? Font.system(size: size)
+        if box.isBold { font = font.weight(.bold) }
+        if box.isItalic { font = font.italic() }
+        return font
+    }
+
     var body: some View {
         Group {
             if let document {
@@ -1508,6 +1516,82 @@ private struct PageTemplateView: View {
     }
 }
 
+private struct EditableImageSelection: View {
+    let image: NotyPageImage
+    let onMove: (CGPoint) -> Void
+    let onResize: (CGSize) -> Void
+
+    @State private var dragOffset = CGSize.zero
+    @State private var dragOrigin = CGPoint.zero
+    @State private var resizeOrigin: CGSize?
+    @State private var isResizing = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 5)
+            .fill(Color.clear)
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(EditorPalette.accent, style: StrokeStyle(lineWidth: 1.4, dash: [5, 3]))
+            )
+            .overlay(alignment: .bottomTrailing) {
+                Circle()
+                    .fill(EditorPalette.paper)
+                    .frame(width: 14, height: 14)
+                    .overlay(Circle().stroke(EditorPalette.accent, lineWidth: 1.5))
+                    .offset(x: 5, y: 5)
+                    .contentShape(Rectangle().inset(by: -10))
+                    .highPriorityGesture(
+                        DragGesture(minimumDistance: 2)
+                            .onChanged { _ in
+                                if resizeOrigin == nil {
+                                    resizeOrigin = CGSize(width: image.width, height: image.height)
+                                }
+                                isResizing = true
+                            }
+                            .onEnded { value in
+                                guard let resizeOrigin else { return }
+                                onResize(CGSize(
+                                    width: resizeOrigin.width + value.translation.width,
+                                    height: resizeOrigin.height + value.translation.height
+                                ))
+                                self.resizeOrigin = nil
+                                isResizing = false
+                            }
+                    )
+                    .accessibilityLabel("Resize image")
+            }
+            .frame(width: CGFloat(image.width), height: CGFloat(image.height))
+            .rotationEffect(.degrees(image.rotationDegrees))
+            .position(
+                x: CGFloat(image.x + image.width / 2),
+                y: CGFloat(image.y + image.height / 2)
+            )
+            .offset(dragOffset)
+            .gesture(
+                DragGesture(minimumDistance: 5)
+                    .onChanged { value in
+                        guard !isResizing else { return }
+                        if dragOrigin == .zero {
+                            dragOrigin = CGPoint(x: CGFloat(image.x), y: CGFloat(image.y))
+                        }
+                        dragOffset = value.translation
+                    }
+                    .onEnded { value in
+                        guard !isResizing else { return }
+                        onMove(CGPoint(
+                            x: dragOrigin.x + value.translation.width,
+                            y: dragOrigin.y + value.translation.height
+                        ))
+                        dragOffset = .zero
+                        dragOrigin = .zero
+                    }
+            )
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Selected image")
+            .accessibilityHint("Drag to move. Drag the corner handle to resize.")
+    }
+}
+
 private struct EditableTextBox: View {
     let box: NotyTextBox
     let scale: CGFloat
@@ -1529,17 +1613,21 @@ private struct EditableTextBox: View {
         Group {
             if isEditing {
                 TextEditor(text: $text)
-                .font(.system(size: max(10, CGFloat(box.fontSize) * scale), weight: .regular))
+                    .font(styledFont)
+                    .foregroundStyle(Color(hex: box.colorHex))
+                    .multilineTextAlignment(box.alignment.textAlignment)
                     .scrollContentBackground(.hidden)
                     .focused($isFocused)
                     .onChange(of: text) { _, newValue in onTextChanged(newValue) }
                     .padding(5 * scale)
             } else {
                 Text(box.text.isEmpty ? " " : box.text)
-                    .font(.system(size: max(10, CGFloat(box.fontSize) * scale), weight: .regular))
-                    .foregroundStyle(EditorPalette.ink)
+                    .font(styledFont)
+                    .underline(box.isUnderlined)
+                    .foregroundStyle(Color(hex: box.colorHex))
+                    .multilineTextAlignment(box.alignment.textAlignment)
                     .lineLimit(nil)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: box.alignment.frameAlignment)
                     .padding(9 * scale)
                     .contentShape(Rectangle())
             }
@@ -1621,6 +1709,40 @@ private struct EditableTextBox: View {
     }
 }
 
+private extension NotyTextAlignment {
+    var editorLabel: String {
+        switch self {
+        case .leading: "Left"
+        case .center: "Center"
+        case .trailing: "Right"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .leading: "text.alignleft"
+        case .center: "text.aligncenter"
+        case .trailing: "text.alignright"
+        }
+    }
+
+    var textAlignment: TextAlignment {
+        switch self {
+        case .leading: .leading
+        case .center: .center
+        case .trailing: .trailing
+        }
+    }
+
+    var frameAlignment: Alignment {
+        switch self {
+        case .leading: .topLeading
+        case .center: .top
+        case .trailing: .topTrailing
+        }
+    }
+}
+
 private struct PageThumbnail: View {
     let documentID: UUID
     let page: NotyPage
@@ -1635,11 +1757,40 @@ private struct PageThumbnail: View {
             VStack(spacing: 6) {
                 ZStack {
                     PageBackground(documentID: documentID, page: page, sourcePDF: sourcePDF, imageSize: CGSize(width: 360, height: 466))
+                    GeometryReader { proxy in
+                        let scale = proxy.size.width / EditorCanvas.width
+                        ForEach(page.images) { pageImage in
+                            if let image = store.pageImage(documentID: documentID, pageID: page.id, image: pageImage) {
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(
+                                        width: CGFloat(pageImage.width) * scale,
+                                        height: CGFloat(pageImage.height) * scale
+                                    )
+                                    .clipped()
+                                    .rotationEffect(.degrees(pageImage.rotationDegrees))
+                                    .position(
+                                        x: CGFloat(pageImage.x + pageImage.width / 2) * scale,
+                                        y: CGFloat(pageImage.y + pageImage.height / 2) * scale
+                                    )
+                            }
+                        }
+                    }
+                    .allowsHitTesting(false)
+
                     let drawing = store.drawing(documentID: documentID, pageID: page.id)
                     if !drawing.strokes.isEmpty {
                         Image(uiImage: drawing.image(from: CGRect(x: 0, y: 0, width: EditorCanvas.width, height: EditorCanvas.height), scale: 0.35))
                             .resizable()
                             .scaledToFill()
+                    }
+                    if page.isBookmarked {
+                        Image(systemName: "bookmark.fill")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(EditorPalette.ink)
+                            .padding(4)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                     }
                 }
                 .aspectRatio(EditorCanvas.width / EditorCanvas.height, contentMode: .fit)
