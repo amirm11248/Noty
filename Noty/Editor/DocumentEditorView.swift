@@ -842,15 +842,17 @@ struct DocumentEditorView: View {
                 if let page = selectedPage {
                     toolbarDivider
                     Menu {
-                        Section("Paper design") {
-                            ForEach(NotyPageTemplate.allCases, id: \.self) { template in
-                                Button {
-                                    store.updatePageFormat(documentID: documentID, pageID: page.id, template: template)
-                                } label: {
-                                    if page.template == template {
-                                        Label(template.editorLabel, systemImage: "checkmark")
-                                    } else {
-                                        Label(template.editorLabel, systemImage: template.symbolName)
+                        if page.sourcePageIndex == nil {
+                            Section("Paper design") {
+                                ForEach(NotyPageTemplate.allCases, id: \.self) { template in
+                                    Button {
+                                        store.updatePageFormat(documentID: documentID, pageID: page.id, template: template)
+                                    } label: {
+                                        if page.template == template {
+                                            Label(template.editorLabel, systemImage: "checkmark")
+                                        } else {
+                                            Label(template.editorLabel, systemImage: template.symbolName)
+                                        }
                                     }
                                 }
                             }
