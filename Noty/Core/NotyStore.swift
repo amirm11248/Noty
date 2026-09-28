@@ -758,46 +758,25 @@ final class NotyStore {
         }
     }
 
-    /// Document-picker URLs are security scoped. Persist that grant so the
-    /// selected iCloud Drive folder remains usable after an app relaunch.
-    /// Local test folders cannot always create a security-scoped bookmark, so
-    /// the plain bookmark fallback keeps unit tests and app-owned folders valid.
+    /// On iOS, directory-picker access is persisted using a minimal bookmark.
+    /// Resolving that bookmark restores a security-scoped directory URL.
     private func persistentFolderBookmark(for url: URL) throws -> Data {
-        do {
-            return try url.bookmarkData(
-                options: [.withSecurityScope],
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil
-            )
-        } catch {
-            return try url.bookmarkData(
-                options: [],
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil
-            )
-        }
+        try url.bookmarkData(
+            options: [.minimalBookmark],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
     }
 
     private func resolvePersistentFolderBookmark(_ data: Data) throws -> (url: URL, isStale: Bool) {
-        var securityScopedIsStale = false
-        do {
-            let url = try URL(
-                resolvingBookmarkData: data,
-                options: [.withSecurityScope],
-                relativeTo: nil,
-                bookmarkDataIsStale: &securityScopedIsStale
-            )
-            return (url, securityScopedIsStale)
-        } catch {
-            var plainIsStale = false
-            let url = try URL(
-                resolvingBookmarkData: data,
-                options: [],
-                relativeTo: nil,
-                bookmarkDataIsStale: &plainIsStale
-            )
-            return (url, plainIsStale)
-        }
+        var isStale = false
+        let url = try URL(
+            resolvingBookmarkData: data,
+            options: [],
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        )
+        return (url, isStale)
     }
 
     private func touchDocument(at index: Int) {
