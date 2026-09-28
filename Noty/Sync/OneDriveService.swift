@@ -349,26 +349,47 @@ private enum OneDriveError: LocalizedError {
 }
 
 
-// MARK: - Cross-device folder sync profile
 
-/// Stores only the shared-folder discovery link in the user's synchronizable
-/// iCloud Keychain. The notebook data itself remains in the selected Files
-/// folder. A new device can therefore discover the same shared folder without
-/// a Noty account or a separate backend.
+// MARK: - Noty account backend
+
+/// Real account + backend profile service.
 ///
-/// The Files security-scoped folder grant is intentionally NOT synchronized:
-/// iOS requires each device to approve access to an external folder once.
+/// Authentication is handled by Supabase Auth. Only the public/anonymous
+/// client key is bundled in the app; every profile request also carries the
+/// signed-in user's JWT, and Postgres Row Level Security restricts rows to
+/// auth.uid() == user_id.
+///
+/// The backend stores discovery metadata (currently the iCloud sharing URL and
+/// selected folder name), never the iOS security-scoped directory bookmark.
+/// Apple intentionally makes that Files permission local to each device.
 @MainActor
 @Observable
-final class FolderSyncProfileStore {
+final class NotyAccountService {
+    private(set) var isAuthenticated = false
+    private(set) var email: String?
     private(set) var sharedFolderLink: String?
-    private(set) var status = "No shared folder link saved for your devices."
+    private(set) var folderDisplayName: String?
+    private(set) var status = "Sign in to sync your workspace setup across devices."
+    private(set) var lastError: String?
+    private(set) var isWorking = false
 
-    private let keychainService = "com.malik.noty.folder-sync"
-    private let keychainAccount = "shared-folder-link"
+    @ObservationIgnored private var session: StoredSession?
+    @ObservationIgnored private var didBootstrap = false
+
+    private static let backendURL = URL(string: "https://diwtlxvlpiyeownljjpz.supabase.co")!
+    // Supabase publishable/anon client keys are public application identifiers.
+    // Authorization is enforced by the user's JWT + database RLS, never by this key.
+    private static let publicClientKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpd3RseHZscGl5ZW93bmxqanB6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc2MzMzNDMsImV4cCI6MjA3MzMzOTM0M30.A-c0ylufHucKDTuxt5ykiVHjl03cPSzDwYomdaweyNk"
+    private let keychainService = "com.malik.noty.auth"
+    private let keychainAccount = "supabase-session"
 
     init() {
-        refresh()
+        session = loadStoredSession()
+        if let session {
+            email = session.email
+            isAuthenticated = true
+            status = "Restoring your Noty account…"
+        }
     }
 
     var sharedFolderURL: URL? {
@@ -376,117 +397,394 @@ final class FolderSyncProfileStore {
         return URL(string: sharedFolderLink)
     }
 
-    func refresh() {
-        var result: CFTypeRef?
-        let statusCode = SecItemCopyMatching(
-            keychainQuery(returnData: true) as CFDictionary,
-            &result
-        )
+    func bootstrap(force: Bool = false) async {
+        if didBootstrap && !force { return }
+        didBootstrap = true
+        guard session != nil else {
+            isAuthenticated = false
+            status = "Sign in to sync your workspace setup across devices."
+            return
+        }
 
-        switch statusCode {
-        case errSecSuccess:
-            guard
-                let data = result as? Data,
-                let value = String(data: data, encoding: .utf8),
-                !value.isEmpty
-            else {
-                sharedFolderLink = nil
-                status = "The saved folder link could not be read."
-                return
-            }
-            sharedFolderLink = value
-            status = "Shared folder link is available on this device."
-        case errSecItemNotFound:
-            sharedFolderLink = nil
-            status = "No shared folder link saved for your devices."
-        default:
-            sharedFolderLink = nil
-            status = "iCloud Keychain could not read the folder link: \(Self.message(for: statusCode))."
+        await run {
+            try await refreshSession()
+            try await loadSyncProfile()
+            status = "Signed in as \(email ?? "Noty user")."
         }
     }
 
-    func saveSharedFolderLink(_ rawValue: String) throws {
-        let value = try Self.normalizedSharedFolderLink(rawValue)
-        guard let data = value.data(using: .utf8) else {
-            throw FolderSyncProfileError.invalidLink
+    func signIn(email rawEmail: String, password: String) async throws {
+        let normalizedEmail = try Self.normalizedEmail(rawEmail)
+        try Self.validatePassword(password)
+        try await runThrowing {
+            let body: [String: Any] = ["email": normalizedEmail, "password": password]
+            let data = try await authRequest(
+                path: "/auth/v1/token?grant_type=password",
+                method: "POST",
+                jsonBody: body
+            )
+            let newSession = try Self.decodeAuthSession(data, fallbackEmail: normalizedEmail)
+            try persist(newSession)
+            session = newSession
+            email = newSession.email
+            isAuthenticated = true
+            try await loadSyncProfile()
+            status = "Signed in as \(newSession.email)."
         }
-
-        let updateStatus = SecItemUpdate(
-            keychainQuery(returnData: false) as CFDictionary,
-            [kSecValueData as String: data] as CFDictionary
-        )
-
-        switch updateStatus {
-        case errSecSuccess:
-            break
-        case errSecItemNotFound:
-            var attributes = keychainQuery(returnData: false)
-            attributes[kSecValueData as String] = data
-            attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-            let addStatus = SecItemAdd(attributes as CFDictionary, nil)
-            guard addStatus == errSecSuccess else {
-                throw FolderSyncProfileError.keychain(Self.message(for: addStatus))
-            }
-        default:
-            throw FolderSyncProfileError.keychain(Self.message(for: updateStatus))
-        }
-
-        sharedFolderLink = value
-        status = "Saved to iCloud Keychain for your Apple devices."
     }
 
-    func forgetSharedFolderLinkEverywhere() throws {
-        let statusCode = SecItemDelete(keychainQuery(returnData: false) as CFDictionary)
-        guard statusCode == errSecSuccess || statusCode == errSecItemNotFound else {
-            throw FolderSyncProfileError.keychain(Self.message(for: statusCode))
+    func signUp(email rawEmail: String, password: String) async throws {
+        let normalizedEmail = try Self.normalizedEmail(rawEmail)
+        try Self.validatePassword(password)
+        try await runThrowing {
+            let body: [String: Any] = ["email": normalizedEmail, "password": password]
+            let data = try await authRequest(path: "/auth/v1/signup", method: "POST", jsonBody: body)
+
+            if let newSession = try? Self.decodeAuthSession(data, fallbackEmail: normalizedEmail) {
+                try persist(newSession)
+                session = newSession
+                email = newSession.email
+                isAuthenticated = true
+                try await loadSyncProfile()
+                status = "Account created and signed in as \(newSession.email)."
+            } else {
+                clearLocalSession()
+                email = normalizedEmail
+                status = "Account created. Check \(normalizedEmail) for the confirmation email, then sign in."
+            }
         }
+    }
+
+    func signOut() async {
+        isWorking = true
+        defer { isWorking = false }
+
+        if let accessToken = session?.accessToken {
+            var request = baseRequest(path: "/auth/v1/logout", method: "POST")
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            _ = try? await URLSession.shared.data(for: request)
+        }
+        clearLocalSession()
         sharedFolderLink = nil
-        status = "Shared folder link removed from iCloud Keychain."
+        folderDisplayName = nil
+        status = "Signed out. Your local notes and selected Files folder remain on this device."
+        lastError = nil
     }
 
-    private func keychainQuery(returnData: Bool) -> [String: Any] {
-        var query: [String: Any] = [
+    func refreshProfile() async {
+        guard isAuthenticated else { return }
+        await run {
+            try await loadSyncProfile()
+            status = "Account sync settings refreshed."
+        }
+    }
+
+    /// Saves account-level discovery metadata in Postgres. Passing an empty link
+    /// clears it, which is useful when a user wants to keep the workspace private.
+    func saveSyncProfile(sharedFolderLink rawLink: String?, folderDisplayName rawFolderName: String?) async throws {
+        guard let session else { throw NotyAccountError.notSignedIn }
+        let normalizedLink = try Self.normalizedSharedFolderLink(rawLink)
+        let folderName = rawFolderName?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+
+        try await runThrowing {
+            let body: [String: Any] = [
+                "user_id": session.userID,
+                "icloud_share_url": normalizedLink ?? NSNull(),
+                "folder_display_name": folderName ?? NSNull(),
+                "sync_mode": "folder",
+                "updated_at": ISO8601DateFormatter().string(from: .now)
+            ]
+            var request = baseRequest(
+                path: "/rest/v1/noty_sync_profiles?on_conflict=user_id",
+                method: "POST"
+            )
+            request.setValue("resolution=merge-duplicates,return=representation", forHTTPHeaderField: "Prefer")
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let data = try await authorizedData(request)
+            let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+            if let row = rows?.first {
+                applyProfile(row)
+            } else {
+                sharedFolderLink = normalizedLink
+                folderDisplayName = folderName
+            }
+            status = "Workspace setup saved to your Noty account."
+        }
+    }
+
+    func clearSharedFolderLink() async throws {
+        try await saveSyncProfile(sharedFolderLink: nil, folderDisplayName: folderDisplayName)
+    }
+
+    private func loadSyncProfile() async throws {
+        guard let session else { throw NotyAccountError.notSignedIn }
+        let encodedUserID = session.userID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? session.userID
+        let path = "/rest/v1/noty_sync_profiles?select=user_id,icloud_share_url,folder_display_name,sync_mode,updated_at&user_id=eq.\(encodedUserID)&limit=1"
+        let request = baseRequest(path: path, method: "GET")
+        let data = try await authorizedData(request)
+        let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] ?? []
+        if let row = rows.first {
+            applyProfile(row)
+        } else {
+            sharedFolderLink = nil
+            folderDisplayName = nil
+        }
+    }
+
+    private func applyProfile(_ row: [String: Any]) {
+        sharedFolderLink = (row["icloud_share_url"] as? String)?.nilIfEmpty
+        folderDisplayName = (row["folder_display_name"] as? String)?.nilIfEmpty
+    }
+
+    private func refreshSession() async throws {
+        guard let existing = session else { throw NotyAccountError.notSignedIn }
+        let data = try await authRequest(
+            path: "/auth/v1/token?grant_type=refresh_token",
+            method: "POST",
+            jsonBody: ["refresh_token": existing.refreshToken]
+        )
+        let refreshed = try Self.decodeAuthSession(data, fallbackEmail: existing.email)
+        try persist(refreshed)
+        session = refreshed
+        email = refreshed.email
+        isAuthenticated = true
+    }
+
+    private func authorizedData(_ originalRequest: URLRequest) async throws -> Data {
+        guard var session else { throw NotyAccountError.notSignedIn }
+
+        var request = originalRequest
+        request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+        var (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw NotyAccountError.invalidResponse }
+
+        if http.statusCode == 401 {
+            try await refreshSession()
+            guard let refreshed = self.session else { throw NotyAccountError.notSignedIn }
+            session = refreshed
+            request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+            (data, response) = try await URLSession.shared.data(for: request)
+            guard let retryHTTP = response as? HTTPURLResponse else { throw NotyAccountError.invalidResponse }
+            guard (200..<300).contains(retryHTTP.statusCode) else {
+                throw NotyAccountError.server(Self.serverMessage(data: data, statusCode: retryHTTP.statusCode))
+            }
+            return data
+        }
+
+        guard (200..<300).contains(http.statusCode) else {
+            throw NotyAccountError.server(Self.serverMessage(data: data, statusCode: http.statusCode))
+        }
+        return data
+    }
+
+    private func authRequest(path: String, method: String, jsonBody: [String: Any]) async throws -> Data {
+        var request = baseRequest(path: path, method: method)
+        request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw NotyAccountError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            throw NotyAccountError.server(Self.serverMessage(data: data, statusCode: http.statusCode))
+        }
+        return data
+    }
+
+    private func baseRequest(path: String, method: String) -> URLRequest {
+        let url = URL(string: path, relativeTo: Self.backendURL)!
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 25
+        request.setValue(Self.publicClientKey, forHTTPHeaderField: "apikey")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return request
+    }
+
+    private func run(_ operation: () async throws -> Void) async {
+        isWorking = true
+        lastError = nil
+        defer { isWorking = false }
+        do {
+            try await operation()
+        } catch {
+            lastError = error.localizedDescription
+            status = "Account sync needs attention."
+        }
+    }
+
+    private func runThrowing(_ operation: () async throws -> Void) async throws {
+        isWorking = true
+        lastError = nil
+        defer { isWorking = false }
+        do {
+            try await operation()
+        } catch {
+            lastError = error.localizedDescription
+            status = "Account sync needs attention."
+            throw error
+        }
+    }
+
+    private func persist(_ session: StoredSession) throws {
+        let data = try JSONEncoder().encode(session)
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: keychainAccount,
-            kSecAttrSynchronizable as String: kCFBooleanTrue as Any,
             kSecUseDataProtectionKeychain as String: true
         ]
-        if returnData {
-            query[kSecReturnData as String] = true
-            query[kSecMatchLimit as String] = kSecMatchLimitOne
+        let attributes: [String: Any] = [kSecValueData as String: data]
+        let update = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if update == errSecItemNotFound {
+            var add = query
+            add[kSecValueData as String] = data
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            let result = SecItemAdd(add as CFDictionary, nil)
+            guard result == errSecSuccess else {
+                throw NotyAccountError.keychain(Self.keychainMessage(result))
+            }
+        } else if update != errSecSuccess {
+            throw NotyAccountError.keychain(Self.keychainMessage(update))
         }
-        return query
     }
 
-    private static func normalizedSharedFolderLink(_ rawValue: String) throws -> String {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func loadStoredSession() -> StoredSession? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecUseDataProtectionKeychain as String: true,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return try? JSONDecoder().decode(StoredSession.self, from: data)
+    }
+
+    private func clearLocalSession() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecUseDataProtectionKeychain as String: true
+        ]
+        SecItemDelete(query as CFDictionary)
+        session = nil
+        email = nil
+        isAuthenticated = false
+    }
+
+    private struct StoredSession: Codable {
+        var accessToken: String
+        var refreshToken: String
+        var userID: String
+        var email: String
+    }
+
+    private static func decodeAuthSession(_ data: Data, fallbackEmail: String) throws -> StoredSession {
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NotyAccountError.invalidResponse
+        }
+
+        let sessionObject = (root["session"] as? [String: Any]) ?? root
+        guard
+            let accessToken = sessionObject["access_token"] as? String,
+            !accessToken.isEmpty,
+            let refreshToken = sessionObject["refresh_token"] as? String,
+            !refreshToken.isEmpty
+        else {
+            throw NotyAccountError.emailConfirmationRequired
+        }
+
+        let user = (sessionObject["user"] as? [String: Any]) ?? (root["user"] as? [String: Any])
+        guard let userID = user?["id"] as? String, !userID.isEmpty else {
+            throw NotyAccountError.invalidResponse
+        }
+        let email = (user?["email"] as? String)?.nilIfEmpty ?? fallbackEmail
+        return StoredSession(
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            userID: userID,
+            email: email
+        )
+    }
+
+    private static func normalizedEmail(_ raw: String) throws -> String {
+        let email = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard email.contains("@"), email.contains("."), email.count <= 254 else {
+            throw NotyAccountError.invalidEmail
+        }
+        return email
+    }
+
+    private static func validatePassword(_ password: String) throws {
+        guard password.count >= 8 else { throw NotyAccountError.weakPassword }
+    }
+
+    private static func normalizedSharedFolderLink(_ raw: String?) throws -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
         guard
             let url = URL(string: trimmed),
             let scheme = url.scheme?.lowercased(),
-            ["https", "http"].contains(scheme),
+            scheme == "https",
             url.host != nil
         else {
-            throw FolderSyncProfileError.invalidLink
+            throw NotyAccountError.invalidFolderLink
         }
         return url.absoluteString
     }
 
-    private static func message(for status: OSStatus) -> String {
+    private static func serverMessage(data: Data, statusCode: Int) -> String {
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            for key in ["msg", "message", "error_description", "error"] {
+                if let value = object[key] as? String, !value.isEmpty { return value }
+            }
+        }
+        return "Backend request failed (HTTP \(statusCode))."
+    }
+
+    private static func keychainMessage(_ status: OSStatus) -> String {
         (SecCopyErrorMessageString(status, nil) as String?) ?? "Keychain error \(status)"
     }
 }
 
-private enum FolderSyncProfileError: LocalizedError {
-    case invalidLink
+private enum NotyAccountError: LocalizedError {
+    case notSignedIn
+    case invalidEmail
+    case weakPassword
+    case invalidFolderLink
+    case invalidResponse
+    case emailConfirmationRequired
+    case server(String)
     case keychain(String)
 
     var errorDescription: String? {
         switch self {
-        case .invalidLink:
-            return "Enter a valid shared-folder web link, for example the iCloud Drive link created from Files."
+        case .notSignedIn:
+            return "Sign in to your Noty account first."
+        case .invalidEmail:
+            return "Enter a valid email address."
+        case .weakPassword:
+            return "Use a password with at least 8 characters."
+        case .invalidFolderLink:
+            return "Enter a valid HTTPS iCloud/shared-folder link."
+        case .invalidResponse:
+            return "Noty's account server returned an invalid response."
+        case .emailConfirmationRequired:
+            return "Check your email to confirm the account, then sign in."
+        case .server(let message):
+            return message
         case .keychain(let message):
-            return "Noty could not save the folder link to iCloud Keychain. \(message)"
+            return "Noty could not save your sign-in securely: \(message)"
         }
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

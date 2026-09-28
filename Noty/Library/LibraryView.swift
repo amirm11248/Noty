@@ -20,7 +20,7 @@ struct LibraryView: View {
     @State private var backgroundSyncTask: LibraryBackgroundTask?
     @State private var alertMessage: String?
     @State private var searchResults: [NotySearchResult] = []
-    @State private var folderSyncProfile = FolderSyncProfileStore()
+    @State private var account = NotyAccountService()
     @AppStorage("noty.library.favoriteDocumentIDs") private var favoriteIDsValue = ""
     @AppStorage("noty.library.recentDocumentIDs") private var recentIDsValue = ""
     @AppStorage("noty.library.sortOrder") private var sortOrderValue = LibrarySortOrder.edited.rawValue
@@ -121,7 +121,7 @@ struct LibraryView: View {
             switch phase {
             case .active:
                 refreshSearchResults()
-                folderSyncProfile.refresh()
+                Task { await account.bootstrap(force: true) }
                 Task { await syncCloudMirrors() }
             case .background:
                 flushCloudMirrorsBeforeSuspension()
@@ -131,7 +131,7 @@ struct LibraryView: View {
         }
         .task {
             refreshSearchResults()
-            folderSyncProfile.refresh()
+            await account.bootstrap()
             await syncCloudMirrors()
             scheduleBackgroundCloudRetry()
         }
@@ -449,16 +449,16 @@ struct LibraryView: View {
                             Text(
                                 isICloudSyncError
                                     ? "Restore folder sync access"
-                                    : (folderSyncProfile.sharedFolderURL == nil ? "Sync your library with a folder" : "Shared sync folder found")
+                                    : (account.sharedFolderURL == nil ? "Sync your library with a folder" : "Account workspace found")
                             )
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(NotionTheme.ink)
                             Text(
                                 isICloudSyncError
                                     ? displayICloudMirrorStatus(store.syncStatus)
-                                    : (folderSyncProfile.sharedFolderURL == nil
-                                        ? "Choose the same iCloud Drive folder on each device. Noty merges changes automatically."
-                                        : "Your Apple devices shared a folder link through iCloud Keychain. Open Settings to connect this device.")
+                                    : (account.sharedFolderURL == nil
+                                        ? "Choose the same iCloud Drive folder on each device. Sign in to remember its setup across devices."
+                                        : "Your Noty account has a saved iCloud workspace link. Open Settings to connect this device.")
                             )
                                 .font(.system(size: 12))
                                 .foregroundStyle(isICloudSyncError ? NotionTheme.danger : NotionTheme.inkSecondary)
@@ -1132,7 +1132,7 @@ struct LibraryView: View {
             }
         case .settings:
             NavigationStack {
-                LibrarySettingsView(store: store, oneDrive: oneDrive, folderSyncProfile: folderSyncProfile)
+                LibrarySettingsView(store: store, oneDrive: oneDrive, account: account)
             }
         }
     }
@@ -1445,16 +1445,72 @@ private struct MoveFolderRow: Identifiable {
 private struct LibrarySettingsView: View {
     var store: NotyStore
     var oneDrive: OneDriveService
-    var folderSyncProfile: FolderSyncProfileStore
+    var account: NotyAccountService
 
     @Environment(\.dismiss) private var dismiss
     @State private var isChoosingFolder = false
     @State private var folderPickerDestination: FolderPickerDestination?
     @State private var errorMessage: String?
     @State private var sharedFolderLinkDraft = ""
+    @State private var accountEmail = ""
+    @State private var accountPassword = ""
 
     var body: some View {
         Form {
+            Section {
+                if account.isAuthenticated {
+                    LabeledContent("Signed in", value: account.email ?? "Noty account")
+                    Text(account.status)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    if let lastError = account.lastError {
+                        Text(lastError)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .textSelection(.enabled)
+                    }
+                    Button("Refresh account data", systemImage: "arrow.clockwise") {
+                        Task { await account.refreshProfile() }
+                    }
+                    Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                        Task {
+                            await account.signOut()
+                            sharedFolderLinkDraft = ""
+                            accountPassword = ""
+                        }
+                    }
+                } else {
+                    TextField("Email", text: $accountEmail)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.emailAddress)
+                    SecureField("Password", text: $accountPassword)
+                        .textContentType(.password)
+                    HStack {
+                        Button("Sign in") {
+                            signIn()
+                        }
+                        .disabled(account.isWorking || accountEmail.isEmpty || accountPassword.isEmpty)
+
+                        Button("Create account") {
+                            createAccount()
+                        }
+                        .disabled(account.isWorking || accountEmail.isEmpty || accountPassword.isEmpty)
+                    }
+                    if account.isWorking {
+                        ProgressView()
+                    }
+                    Text(account.lastError ?? account.status)
+                        .font(.footnote)
+                        .foregroundStyle(account.lastError == nil ? NotionTheme.inkSecondary : NotionTheme.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } header: {
+                Text("Noty Account")
+            } footer: {
+                Text("Your account is backed by Supabase Auth + Postgres. Noty stores only workspace metadata here, such as the iCloud sharing link and folder name. Notes remain in your selected sync folder.")
+            }
+
             if let persistenceError = store.lastPersistenceError, !persistenceError.isEmpty {
                 Section("Local storage") {
                     Label {
@@ -1510,12 +1566,12 @@ private struct LibrarySettingsView: View {
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
 
-                Button("Save link for my Apple devices", systemImage: "key.icloud") {
+                Button("Save link to my Noty account", systemImage: "person.crop.circle.badge.checkmark") {
                     saveSharedFolderLink()
                 }
-                .disabled(sharedFolderLinkDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(!account.isAuthenticated || account.isWorking)
 
-                if let sharedURL = folderSyncProfile.sharedFolderURL {
+                if let sharedURL = account.sharedFolderURL {
                     Button("Open saved shared-folder link", systemImage: "link") {
                         UIApplication.shared.open(sharedURL, options: [:], completionHandler: nil)
                     }
@@ -1524,23 +1580,25 @@ private struct LibrarySettingsView: View {
                         Label("Share folder link", systemImage: "square.and.arrow.up")
                     }
 
-                    Button("Forget saved link on my devices", systemImage: "trash", role: .destructive) {
+                    Button("Remove saved link from my account", systemImage: "trash", role: .destructive) {
                         forgetSharedFolderLink()
                     }
                 }
 
-                Button("Check iCloud Keychain for a link", systemImage: "arrow.clockwise") {
-                    refreshSharedFolderLink()
+                if account.isAuthenticated {
+                    Button("Refresh link from my account", systemImage: "arrow.clockwise") {
+                        refreshSharedFolderLink()
+                    }
                 }
 
-                Text(folderSyncProfile.status)
+                Text(account.status)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } header: {
                 Text("Sync with Folder")
             } footer: {
-                Text("For your own devices on the same Apple Account, keep the iCloud Drive folder private and choose it once on each device. A shared-folder link is optional for discovery or other people. Prefer “People You Choose”; “Anyone with the link” plus edit access means anyone who gets that URL can modify the folder. iCloud Keychain can carry a saved link to your other Apple devices, but iOS still requires each device to approve Files access once.")
+                Text("Sign in to the same Noty account on another device and the saved workspace link/folder name comes from the backend automatically. iOS still requires each Apple device to approve the Files folder once. Prefer “People You Choose”; an “Anyone with the link” editable share can be modified by anyone who gets that URL.")
             }
 
             Section {
@@ -1598,7 +1656,7 @@ private struct LibrarySettingsView: View {
             folderPickerDestination = nil
         }
         .alert(
-            "Folder access",
+            "Noty",
             isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
@@ -1609,8 +1667,9 @@ private struct LibrarySettingsView: View {
             Text(errorMessage ?? "")
         }
         .task {
-            folderSyncProfile.refresh()
-            if sharedFolderLinkDraft.isEmpty, let syncedLink = folderSyncProfile.sharedFolderLink {
+            await account.bootstrap()
+            if accountEmail.isEmpty { accountEmail = account.email ?? "" }
+            if sharedFolderLinkDraft.isEmpty, let syncedLink = account.sharedFolderLink {
                 sharedFolderLinkDraft = syncedLink
             }
         }
@@ -1640,7 +1699,15 @@ private struct LibrarySettingsView: View {
             do {
                 try store.configureICloudMirror(folderURL: folderURL)
                 NotyBackgroundSyncScheduler.scheduleIfNeeded(hasWork: true)
-                Task { await store.syncICloudMirror() }
+                Task {
+                    await store.syncICloudMirror()
+                    if account.isAuthenticated {
+                        try? await account.saveSyncProfile(
+                            sharedFolderLink: account.sharedFolderLink,
+                            folderDisplayName: folderURL.lastPathComponent
+                        )
+                    }
+                }
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -1648,27 +1715,60 @@ private struct LibrarySettingsView: View {
     }
 
     private func saveSharedFolderLink() {
-        do {
-            try folderSyncProfile.saveSharedFolderLink(sharedFolderLinkDraft)
-            sharedFolderLinkDraft = folderSyncProfile.sharedFolderLink ?? sharedFolderLinkDraft
-        } catch {
-            errorMessage = error.localizedDescription
+        Task {
+            do {
+                try await account.saveSyncProfile(
+                    sharedFolderLink: sharedFolderLinkDraft,
+                    folderDisplayName: store.iCloudMirrorFolderURL?.lastPathComponent
+                )
+                sharedFolderLinkDraft = account.sharedFolderLink ?? ""
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
     private func refreshSharedFolderLink() {
-        folderSyncProfile.refresh()
-        if let syncedLink = folderSyncProfile.sharedFolderLink {
-            sharedFolderLinkDraft = syncedLink
+        Task {
+            await account.refreshProfile()
+            if let syncedLink = account.sharedFolderLink {
+                sharedFolderLinkDraft = syncedLink
+            }
         }
     }
 
     private func forgetSharedFolderLink() {
-        do {
-            try folderSyncProfile.forgetSharedFolderLinkEverywhere()
-            sharedFolderLinkDraft = ""
-        } catch {
-            errorMessage = error.localizedDescription
+        Task {
+            do {
+                try await account.clearSharedFolderLink()
+                sharedFolderLinkDraft = ""
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func signIn() {
+        Task {
+            do {
+                try await account.signIn(email: accountEmail, password: accountPassword)
+                accountPassword = ""
+                sharedFolderLinkDraft = account.sharedFolderLink ?? ""
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func createAccount() {
+        Task {
+            do {
+                try await account.signUp(email: accountEmail, password: accountPassword)
+                accountPassword = ""
+                sharedFolderLinkDraft = account.sharedFolderLink ?? ""
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
