@@ -1,0 +1,67 @@
+name: Noty
+options:
+  bundleIdPrefix: com.malik
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "2"
+    SUPPORTS_MACCATALYST: NO
+    GENERATE_INFOPLIST_FILE: NO
+targets:
+  Noty:
+    type: application
+    platform: iOS
+    sources:
+      - path: Noty
+        excludes:
+          - Core/Resources/**
+      - path: Noty/Core/Resources
+        type: group
+        buildPhase: resources
+        optional: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.malik.noty
+        INFOPLIST_FILE: Noty/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+    info:
+      path: Noty/Info.plist
+      properties:
+        CFBundleDisplayName: noty
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: PDF and Word documents
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.adobe.pdf
+              - org.openxmlformats.wordprocessingml.document
+              - com.microsoft.word.doc
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationPortraitUpsideDown
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIApplicationSupportsDocumentBrowser: false
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.malik.noty.sync
+  NotyTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: NotyTests
+        excludes:
+          - Fixtures/**
+      - path: NotyTests/Fixtures
+        buildPhase: resources
+    dependencies:
+      - target: Noty
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Noty.app/Noty"
+        BUNDLE_LOADER: "$(TEST_HOST)"

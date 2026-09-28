@@ -1,0 +1,559 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		2140B165EF8C2B6D6562EAF0 /* NotionTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36C6DD6C3F9FBA311AEE052E /* NotionTheme.swift */; };
+		2AAB49EECF23123C2FB3B089 /* noty-qa.docx in Resources */ = {isa = PBXBuildFile; fileRef = 32A4025F6E9EA4ABE842EA71 /* noty-qa.docx */; };
+		3E5074AFF66E8E9A30923F0E /* JSZip-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = FEA69734FB84D67F4028A898 /* JSZip-LICENSE.txt */; };
+		448E1A386C0A9705EAF080D0 /* NotySearchResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24C943A28641E867826EC623 /* NotySearchResult.swift */; };
+		4E4D10125BBD21342906B145 /* Pako-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 739E132FB3DBD3D1CB7BBA25 /* Pako-LICENSE.txt */; };
+		6FB5AC45861AC7BE876612E5 /* OneDriveService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 866569FCBE48B110B6C30B23 /* OneDriveService.swift */; };
+		7E9B4E3A8A79421C21723022 /* NotyICloudMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC26C0D0B3DBA7028231217C /* NotyICloudMirror.swift */; };
+		9810B98F0C8F5EB4486256AD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 608AF6FE63DD79F9768B5A50 /* Assets.xcassets */; };
+		9930B1CB55144B45D3C8B63C /* LocalOfficeConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F70EB43B7C4BABEA8006D96C /* LocalOfficeConverter.swift */; };
+		9BE4484AB8555183688E6DCC /* jszip.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 822689D035363EF9F37897FE /* jszip.min.js */; };
+		A364A682D797B3EE63C57171 /* DOCXPreviewPDFSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4C53C177452A0B06986BCB8 /* DOCXPreviewPDFSession.swift */; };
+		B322E694D848E74F6673F447 /* DocumentEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2ABBD8275681D1E0E54A854 /* DocumentEditorView.swift */; };
+		C3F04E649A1E0CD2C024D55E /* NotyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1B2702B617E0CDE032E7D7F /* NotyApp.swift */; };
+		D3EED013981A738D71974166 /* NotyOneDriveMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E5B7E463A3201DA5DEBB0F /* NotyOneDriveMirrorTests.swift */; };
+		D58CCF67E92C85DE24F5541F /* NotyEditorIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90DCF6F6C7F996170829F98C /* NotyEditorIntegrationTests.swift */; };
+		D929A6FAACC622B930806692 /* noty-qa.pdf in Resources */ = {isa = PBXBuildFile; fileRef = B4563847D343D92E71314932 /* noty-qa.pdf */; };
+		DA48C509ABDF2F974CBF66A7 /* NotyOfficeConversionQualityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF162DAFAA6420F03FD7F043 /* NotyOfficeConversionQualityTests.swift */; };
+		DF7CC171F8B8BF3C09B973F1 /* docx-preview.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 6CEB3204EDCA450CB47AB1E5 /* docx-preview.min.js */; };
+		E6961026DCA01857F6A15721 /* noty-rich.docx in Resources */ = {isa = PBXBuildFile; fileRef = 5B05FDFF4DD7B9327372A0F5 /* noty-rich.docx */; };
+		E70EAA759F066926D96CED6F /* NotyHandwritingRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE90A159BDCB19FC198B0AE0 /* NotyHandwritingRecognizer.swift */; };
+		EDBD400148BEF6A663DF2EC5 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 330243D8C37AF39E26CE69A2 /* LibraryView.swift */; };
+		EFE389D9E108FBDF87ADA02A /* DOCXPreview-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 586251782CF53F8BD2DD05C2 /* DOCXPreview-LICENSE.txt */; };
+		F33D175DCC546867FC978DEA /* NotyICloudMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE2AC9ADD8CD9B6DC24FB7C1 /* NotyICloudMirrorTests.swift */; };
+		F6E980BBEE0550C5215D614B /* NotyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E585F584FEB9062D197F3E98 /* NotyStore.swift */; };
+		F887CAB85ECAFB256B223114 /* NotyExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8539863730F58C0678E79F02 /* NotyExportService.swift */; };
+		FB451556339CC2ECFDF69AC5 /* NotyModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ED2CD41B613DBDC3BC85662 /* NotyModels.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		85C056C9BB022750D2A86F51 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BFFB087F4A2D474D01993537 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 21403F9C6310F1F6096E95B5;
+			remoteInfo = Noty;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		24C943A28641E867826EC623 /* NotySearchResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotySearchResult.swift; sourceTree = "<group>"; };
+		26E5B7E463A3201DA5DEBB0F /* NotyOneDriveMirrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyOneDriveMirrorTests.swift; sourceTree = "<group>"; };
+		2D23CCFBD48BA88A4707FFC4 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		2ED2CD41B613DBDC3BC85662 /* NotyModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyModels.swift; sourceTree = "<group>"; };
+		32A4025F6E9EA4ABE842EA71 /* noty-qa.docx */ = {isa = PBXFileReference; path = "noty-qa.docx"; sourceTree = "<group>"; };
+		330243D8C37AF39E26CE69A2 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		36C6DD6C3F9FBA311AEE052E /* NotionTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotionTheme.swift; sourceTree = "<group>"; };
+		586251782CF53F8BD2DD05C2 /* DOCXPreview-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "DOCXPreview-LICENSE.txt"; sourceTree = "<group>"; };
+		5B05FDFF4DD7B9327372A0F5 /* noty-rich.docx */ = {isa = PBXFileReference; path = "noty-rich.docx"; sourceTree = "<group>"; };
+		5B8B4CB7D79DAD5D55798EC4 /* Noty.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Noty.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		608AF6FE63DD79F9768B5A50 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		6CEB3204EDCA450CB47AB1E5 /* docx-preview.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "docx-preview.min.js"; sourceTree = "<group>"; };
+		739E132FB3DBD3D1CB7BBA25 /* Pako-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Pako-LICENSE.txt"; sourceTree = "<group>"; };
+		822689D035363EF9F37897FE /* jszip.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = jszip.min.js; sourceTree = "<group>"; };
+		8539863730F58C0678E79F02 /* NotyExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyExportService.swift; sourceTree = "<group>"; };
+		866569FCBE48B110B6C30B23 /* OneDriveService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneDriveService.swift; sourceTree = "<group>"; };
+		90DCF6F6C7F996170829F98C /* NotyEditorIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyEditorIntegrationTests.swift; sourceTree = "<group>"; };
+		AF162DAFAA6420F03FD7F043 /* NotyOfficeConversionQualityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyOfficeConversionQualityTests.swift; sourceTree = "<group>"; };
+		B4563847D343D92E71314932 /* noty-qa.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = "noty-qa.pdf"; sourceTree = "<group>"; };
+		E1B2702B617E0CDE032E7D7F /* NotyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyApp.swift; sourceTree = "<group>"; };
+		E585F584FEB9062D197F3E98 /* NotyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyStore.swift; sourceTree = "<group>"; };
+		E592AE9710F15E713739491B /* NotyTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NotyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		EC26C0D0B3DBA7028231217C /* NotyICloudMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyICloudMirror.swift; sourceTree = "<group>"; };
+		F2ABBD8275681D1E0E54A854 /* DocumentEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentEditorView.swift; sourceTree = "<group>"; };
+		F4C53C177452A0B06986BCB8 /* DOCXPreviewPDFSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DOCXPreviewPDFSession.swift; sourceTree = "<group>"; };
+		F70EB43B7C4BABEA8006D96C /* LocalOfficeConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalOfficeConverter.swift; sourceTree = "<group>"; };
+		FE2AC9ADD8CD9B6DC24FB7C1 /* NotyICloudMirrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyICloudMirrorTests.swift; sourceTree = "<group>"; };
+		FE90A159BDCB19FC198B0AE0 /* NotyHandwritingRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyHandwritingRecognizer.swift; sourceTree = "<group>"; };
+		FEA69734FB84D67F4028A898 /* JSZip-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "JSZip-LICENSE.txt"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		015BB1E40E1828F903F2A8F5 /* Editor */ = {
+			isa = PBXGroup;
+			children = (
+				F2ABBD8275681D1E0E54A854 /* DocumentEditorView.swift */,
+				8539863730F58C0678E79F02 /* NotyExportService.swift */,
+			);
+			path = Editor;
+			sourceTree = "<group>";
+		};
+		23B79ECB6A47A7C7FE5277DC /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5B8B4CB7D79DAD5D55798EC4 /* Noty.app */,
+				E592AE9710F15E713739491B /* NotyTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		23C528F46CDF518D507DAD34 /* Fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				32A4025F6E9EA4ABE842EA71 /* noty-qa.docx */,
+				B4563847D343D92E71314932 /* noty-qa.pdf */,
+				5B05FDFF4DD7B9327372A0F5 /* noty-rich.docx */,
+			);
+			name = Fixtures;
+			path = NotyTests/Fixtures;
+			sourceTree = "<group>";
+		};
+		2431F915DF02A7E369BD6D3F /* Sync */ = {
+			isa = PBXGroup;
+			children = (
+				866569FCBE48B110B6C30B23 /* OneDriveService.swift */,
+			);
+			path = Sync;
+			sourceTree = "<group>";
+		};
+		6D39319E326C19676E913AAD /* Noty */ = {
+			isa = PBXGroup;
+			children = (
+				608AF6FE63DD79F9768B5A50 /* Assets.xcassets */,
+				2D23CCFBD48BA88A4707FFC4 /* Info.plist */,
+				E1B2702B617E0CDE032E7D7F /* NotyApp.swift */,
+				8D8B351EA25F75B8B5C51E1A /* Core */,
+				015BB1E40E1828F903F2A8F5 /* Editor */,
+				CF8A2F6B431FCAECE78F144A /* Library */,
+				2431F915DF02A7E369BD6D3F /* Sync */,
+			);
+			path = Noty;
+			sourceTree = "<group>";
+		};
+		8D8B351EA25F75B8B5C51E1A /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				F4C53C177452A0B06986BCB8 /* DOCXPreviewPDFSession.swift */,
+				F70EB43B7C4BABEA8006D96C /* LocalOfficeConverter.swift */,
+				36C6DD6C3F9FBA311AEE052E /* NotionTheme.swift */,
+				FE90A159BDCB19FC198B0AE0 /* NotyHandwritingRecognizer.swift */,
+				EC26C0D0B3DBA7028231217C /* NotyICloudMirror.swift */,
+				2ED2CD41B613DBDC3BC85662 /* NotyModels.swift */,
+				24C943A28641E867826EC623 /* NotySearchResult.swift */,
+				E585F584FEB9062D197F3E98 /* NotyStore.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		8E69A820374DB34C2527017A /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				6CEB3204EDCA450CB47AB1E5 /* docx-preview.min.js */,
+				586251782CF53F8BD2DD05C2 /* DOCXPreview-LICENSE.txt */,
+				FEA69734FB84D67F4028A898 /* JSZip-LICENSE.txt */,
+				822689D035363EF9F37897FE /* jszip.min.js */,
+				739E132FB3DBD3D1CB7BBA25 /* Pako-LICENSE.txt */,
+			);
+			name = Resources;
+			path = Noty/Core/Resources;
+			sourceTree = "<group>";
+		};
+		CF8A2F6B431FCAECE78F144A /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				330243D8C37AF39E26CE69A2 /* LibraryView.swift */,
+			);
+			path = Library;
+			sourceTree = "<group>";
+		};
+		EDCBEE477F12F3EDB3BC5E49 = {
+			isa = PBXGroup;
+			children = (
+				23C528F46CDF518D507DAD34 /* Fixtures */,
+				6D39319E326C19676E913AAD /* Noty */,
+				F5D26B66DE5F0518544C0860 /* NotyTests */,
+				8E69A820374DB34C2527017A /* Resources */,
+				23B79ECB6A47A7C7FE5277DC /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		F5D26B66DE5F0518544C0860 /* NotyTests */ = {
+			isa = PBXGroup;
+			children = (
+				90DCF6F6C7F996170829F98C /* NotyEditorIntegrationTests.swift */,
+				FE2AC9ADD8CD9B6DC24FB7C1 /* NotyICloudMirrorTests.swift */,
+				AF162DAFAA6420F03FD7F043 /* NotyOfficeConversionQualityTests.swift */,
+				26E5B7E463A3201DA5DEBB0F /* NotyOneDriveMirrorTests.swift */,
+			);
+			path = NotyTests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		21403F9C6310F1F6096E95B5 /* Noty */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FF3E9B1D907CD05A53C15416 /* Build configuration list for PBXNativeTarget "Noty" */;
+			buildPhases = (
+				071A8D0B2C3066D969F6D37F /* Sources */,
+				BE7F08C080C33AF139DB19C3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Noty;
+			packageProductDependencies = (
+			);
+			productName = Noty;
+			productReference = 5B8B4CB7D79DAD5D55798EC4 /* Noty.app */;
+			productType = "com.apple.product-type.application";
+		};
+		7086AF82A8B457C1185CF876 /* NotyTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 78BB873A068D70068274D067 /* Build configuration list for PBXNativeTarget "NotyTests" */;
+			buildPhases = (
+				F3CDF4A66AAFC8809C8F5B5E /* Sources */,
+				D3E8943866D5DF180367B32D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				12A918C062F75EAEDE94A5A0 /* PBXTargetDependency */,
+			);
+			name = NotyTests;
+			packageProductDependencies = (
+			);
+			productName = NotyTests;
+			productReference = E592AE9710F15E713739491B /* NotyTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		BFFB087F4A2D474D01993537 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					21403F9C6310F1F6096E95B5 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 89FEECB906AC20E365EB849D /* Build configuration list for PBXProject "Noty" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = EDCBEE477F12F3EDB3BC5E49;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 23B79ECB6A47A7C7FE5277DC /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				21403F9C6310F1F6096E95B5 /* Noty */,
+				7086AF82A8B457C1185CF876 /* NotyTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BE7F08C080C33AF139DB19C3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9810B98F0C8F5EB4486256AD /* Assets.xcassets in Resources */,
+				EFE389D9E108FBDF87ADA02A /* DOCXPreview-LICENSE.txt in Resources */,
+				3E5074AFF66E8E9A30923F0E /* JSZip-LICENSE.txt in Resources */,
+				4E4D10125BBD21342906B145 /* Pako-LICENSE.txt in Resources */,
+				DF7CC171F8B8BF3C09B973F1 /* docx-preview.min.js in Resources */,
+				9BE4484AB8555183688E6DCC /* jszip.min.js in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D3E8943866D5DF180367B32D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2AAB49EECF23123C2FB3B089 /* noty-qa.docx in Resources */,
+				D929A6FAACC622B930806692 /* noty-qa.pdf in Resources */,
+				E6961026DCA01857F6A15721 /* noty-rich.docx in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		071A8D0B2C3066D969F6D37F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A364A682D797B3EE63C57171 /* DOCXPreviewPDFSession.swift in Sources */,
+				B322E694D848E74F6673F447 /* DocumentEditorView.swift in Sources */,
+				EDBD400148BEF6A663DF2EC5 /* LibraryView.swift in Sources */,
+				9930B1CB55144B45D3C8B63C /* LocalOfficeConverter.swift in Sources */,
+				2140B165EF8C2B6D6562EAF0 /* NotionTheme.swift in Sources */,
+				C3F04E649A1E0CD2C024D55E /* NotyApp.swift in Sources */,
+				F887CAB85ECAFB256B223114 /* NotyExportService.swift in Sources */,
+				E70EAA759F066926D96CED6F /* NotyHandwritingRecognizer.swift in Sources */,
+				7E9B4E3A8A79421C21723022 /* NotyICloudMirror.swift in Sources */,
+				FB451556339CC2ECFDF69AC5 /* NotyModels.swift in Sources */,
+				448E1A386C0A9705EAF080D0 /* NotySearchResult.swift in Sources */,
+				F6E980BBEE0550C5215D614B /* NotyStore.swift in Sources */,
+				6FB5AC45861AC7BE876612E5 /* OneDriveService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F3CDF4A66AAFC8809C8F5B5E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D58CCF67E92C85DE24F5541F /* NotyEditorIntegrationTests.swift in Sources */,
+				F33D175DCC546867FC978DEA /* NotyICloudMirrorTests.swift in Sources */,
+				DA48C509ABDF2F974CBF66A7 /* NotyOfficeConversionQualityTests.swift in Sources */,
+				D3EED013981A738D71974166 /* NotyOneDriveMirrorTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		12A918C062F75EAEDE94A5A0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 21403F9C6310F1F6096E95B5 /* Noty */;
+			targetProxy = 85C056C9BB022750D2A86F51 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		3393A8B70F7E17B8770C786B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.malik.NotyTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Noty.app/Noty";
+			};
+			name = Debug;
+		};
+		506B121D368F921622617C51 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Debug;
+		};
+		9964595E13A4C91703B7C102 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Release;
+		};
+		E1E325F9C777C5097F1A1361 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = Noty/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.malik.noty;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		EA1993BAEF3E5792BD70D926 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = Noty/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.malik.noty;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		EB280D1ACFA87AABFC604630 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.malik.NotyTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Noty.app/Noty";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		78BB873A068D70068274D067 /* Build configuration list for PBXNativeTarget "NotyTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3393A8B70F7E17B8770C786B /* Debug */,
+				EB280D1ACFA87AABFC604630 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		89FEECB906AC20E365EB849D /* Build configuration list for PBXProject "Noty" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				506B121D368F921622617C51 /* Debug */,
+				9964595E13A4C91703B7C102 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FF3E9B1D907CD05A53C15416 /* Build configuration list for PBXNativeTarget "Noty" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E1E325F9C777C5097F1A1361 /* Debug */,
+				EA1993BAEF3E5792BD70D926 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = BFFB087F4A2D474D01993537 /* Project object */;
+}
