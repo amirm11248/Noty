@@ -13,6 +13,12 @@ enum NotyPageTemplate: String, Codable, CaseIterable {
     case dots
 }
 
+enum NotyTextAlignment: String, Codable, CaseIterable {
+    case leading
+    case center
+    case trailing
+}
+
 struct NotyFolder: Identifiable, Codable, Hashable {
     var id: UUID
     var name: String
@@ -33,6 +39,12 @@ struct NotyTextBox: Identifiable, Codable, Hashable {
     var width: Double
     var height: Double
     var fontSize: Double
+    var fontName: String?
+    var isBold: Bool
+    var isItalic: Bool
+    var isUnderlined: Bool
+    var colorHex: String
+    var alignment: NotyTextAlignment
 
     init(
         id: UUID = UUID(),
@@ -41,7 +53,13 @@ struct NotyTextBox: Identifiable, Codable, Hashable {
         y: Double = 24,
         width: Double = 564,
         height: Double = 120,
-        fontSize: Double = 16
+        fontSize: Double = 16,
+        fontName: String? = nil,
+        isBold: Bool = false,
+        isItalic: Bool = false,
+        isUnderlined: Bool = false,
+        colorHex: String = "37352F",
+        alignment: NotyTextAlignment = .leading
     ) {
         self.id = id
         self.text = text
@@ -50,6 +68,62 @@ struct NotyTextBox: Identifiable, Codable, Hashable {
         self.width = width
         self.height = height
         self.fontSize = fontSize
+        self.fontName = fontName
+        self.isBold = isBold
+        self.isItalic = isItalic
+        self.isUnderlined = isUnderlined
+        self.colorHex = colorHex
+        self.alignment = alignment
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, text, x, y, width, height, fontSize, fontName
+        case isBold, isItalic, isUnderlined, colorHex, alignment
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
+        x = try container.decodeIfPresent(Double.self, forKey: .x) ?? 24
+        y = try container.decodeIfPresent(Double.self, forKey: .y) ?? 24
+        width = try container.decodeIfPresent(Double.self, forKey: .width) ?? 564
+        height = try container.decodeIfPresent(Double.self, forKey: .height) ?? 120
+        fontSize = try container.decodeIfPresent(Double.self, forKey: .fontSize) ?? 16
+        fontName = try container.decodeIfPresent(String.self, forKey: .fontName)
+        isBold = try container.decodeIfPresent(Bool.self, forKey: .isBold) ?? false
+        isItalic = try container.decodeIfPresent(Bool.self, forKey: .isItalic) ?? false
+        isUnderlined = try container.decodeIfPresent(Bool.self, forKey: .isUnderlined) ?? false
+        colorHex = try container.decodeIfPresent(String.self, forKey: .colorHex) ?? "37352F"
+        alignment = try container.decodeIfPresent(NotyTextAlignment.self, forKey: .alignment) ?? .leading
+    }
+}
+
+struct NotyPageImage: Identifiable, Codable, Hashable {
+    var id: UUID
+    var fileName: String
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+    var rotationDegrees: Double
+
+    init(
+        id: UUID = UUID(),
+        fileName: String,
+        x: Double = 72,
+        y: Double = 120,
+        width: Double = 300,
+        height: Double = 220,
+        rotationDegrees: Double = 0
+    ) {
+        self.id = id
+        self.fileName = fileName
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.rotationDegrees = rotationDegrees
     }
 }
 
@@ -59,17 +133,41 @@ struct NotyPage: Identifiable, Codable, Hashable {
     /// Zero-based page index in the imported source PDF, when this page is PDF-backed.
     var sourcePageIndex: Int?
     var textBoxes: [NotyTextBox]
+    var images: [NotyPageImage]
+    var isBookmarked: Bool
+    var bookmarkTitle: String?
 
     init(
         id: UUID = UUID(),
         template: NotyPageTemplate = .blank,
         sourcePageIndex: Int? = nil,
-        textBoxes: [NotyTextBox] = []
+        textBoxes: [NotyTextBox] = [],
+        images: [NotyPageImage] = [],
+        isBookmarked: Bool = false,
+        bookmarkTitle: String? = nil
     ) {
         self.id = id
         self.template = template
         self.sourcePageIndex = sourcePageIndex
         self.textBoxes = textBoxes
+        self.images = images
+        self.isBookmarked = isBookmarked
+        self.bookmarkTitle = bookmarkTitle
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, template, sourcePageIndex, textBoxes, images, isBookmarked, bookmarkTitle
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        template = try container.decodeIfPresent(NotyPageTemplate.self, forKey: .template) ?? .blank
+        sourcePageIndex = try container.decodeIfPresent(Int.self, forKey: .sourcePageIndex)
+        textBoxes = try container.decodeIfPresent([NotyTextBox].self, forKey: .textBoxes) ?? []
+        images = try container.decodeIfPresent([NotyPageImage].self, forKey: .images) ?? []
+        isBookmarked = try container.decodeIfPresent(Bool.self, forKey: .isBookmarked) ?? false
+        bookmarkTitle = try container.decodeIfPresent(String.self, forKey: .bookmarkTitle)
     }
 }
 
@@ -101,6 +199,14 @@ struct NotyDocument: Identifiable, Codable, Hashable {
     }
 }
 
+struct NotyTrashedDocument: Identifiable, Codable, Hashable {
+    var document: NotyDocument
+    var deletedAt: Date
+    var recoveryDirectoryName: String
+
+    var id: UUID { document.id }
+}
+
 protocol OfficeConverting {
     func convertToPDF(fileURL: URL) async throws -> URL
 }
@@ -113,6 +219,7 @@ enum NotyStoreError: LocalizedError {
     case unsupportedImportType(String)
     case invalidPDF
     case invalidOfficeDocument(String)
+    case invalidImage
     case iCloudFolderUnavailable
     case invalidMirrorSnapshot(String)
 
@@ -132,6 +239,8 @@ enum NotyStoreError: LocalizedError {
             return "The PDF could not be opened. The original file has been kept in the import package."
         case .invalidOfficeDocument(let message):
             return message
+        case .invalidImage:
+            return "The selected image could not be opened."
         case .iCloudFolderUnavailable:
             return "iCloud Drive could not access the selected backup folder. Select the folder again in Files."
         case .invalidMirrorSnapshot(let message):
