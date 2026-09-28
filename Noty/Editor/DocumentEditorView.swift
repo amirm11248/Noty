@@ -43,14 +43,6 @@ struct DocumentEditorView: View {
         return document.pages.first { $0.id == selectedPageID } ?? document.pages.first
     }
 
-    private var styledFont: Font {
-        let size = max(10, CGFloat(box.fontSize) * scale)
-        var font = box.fontName.map { Font.custom($0, size: size) } ?? Font.system(size: size)
-        if box.isBold { font = font.weight(.bold) }
-        if box.isItalic { font = font.italic() }
-        return font
-    }
-
     var body: some View {
         Group {
             if let document {
@@ -1608,6 +1600,14 @@ private struct EditableTextBox: View {
     @State private var resizeOrigin: CGSize?
     @State private var isResizing = false
     @FocusState private var isFocused: Bool
+
+    private var styledFont: Font {
+        let size = max(10, CGFloat(box.fontSize) * scale)
+        var font = box.fontName.map { Font.custom($0, size: size) } ?? Font.system(size: size)
+        if box.isBold { font = font.weight(.bold) }
+        if box.isItalic { font = font.italic() }
+        return font
+    }
 
     var body: some View {
         Group {
