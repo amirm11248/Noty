@@ -45,6 +45,10 @@
 	<true/>
 	<key>UIApplicationSupportsDocumentBrowser</key>
 	<false/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>UISupportedInterfaceOrientations</key>
