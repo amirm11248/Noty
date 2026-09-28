@@ -238,19 +238,6 @@ enum NotyExportService {
     private static func drawTextBox(_ box: NotyTextBox, canvasSize: CGSize, in context: CGContext) {
         let rect = CGRect(x: CGFloat(box.x), y: CGFloat(box.y), width: CGFloat(box.width), height: CGFloat(box.height))
         let insetRect = rect.insetBy(dx: 9, dy: 8)
-        let paper = UIColor(white: 1, alpha: 0.97)
-        let border = UIColor(red: 55 / 255, green: 53 / 255, blue: 47 / 255, alpha: 0.16)
-        let boxPath = CGPath(roundedRect: rect, cornerWidth: 7, cornerHeight: 7, transform: nil)
-        context.saveGState()
-        context.setFillColor(paper.cgColor)
-        context.addPath(boxPath)
-        context.fillPath()
-        context.setStrokeColor(border.cgColor)
-        context.setLineWidth(0.7)
-        context.addPath(boxPath)
-        context.strokePath()
-        context.restoreGState()
-
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping
         switch box.alignment {
