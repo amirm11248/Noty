@@ -3,6 +3,7 @@ import Observation
 import PDFKit
 import PencilKit
 import UniformTypeIdentifiers
+import UIKit
 
 struct NotyDeletionRecord: Codable, Hashable, Identifiable {
     var id: UUID
@@ -63,6 +64,7 @@ final class NotyStore {
     private(set) var isSyncingICloudMirror = false
     private(set) var lastPersistenceError: String?
     private(set) var lastOperationMessage: String?
+    private(set) var trashItems: [NotyTrashedDocument] = []
 
     @ObservationIgnored let storageDirectoryURL: URL
     @ObservationIgnored let fileManager = FileManager.default
@@ -86,6 +88,7 @@ final class NotyStore {
         do {
             try fileManager.createDirectory(at: self.storageDirectoryURL, withIntermediateDirectories: true)
             loadLocalManifest()
+            loadLocalTrash()
             restoreMirrorBookmark()
         } catch {
             lastPersistenceError = "Noty could not open its local library: \(error.localizedDescription)"
@@ -185,12 +188,81 @@ final class NotyStore {
 
     func deleteDocument(id: UUID) {
         guard let index = documents.firstIndex(where: { $0.id == id }) else { return }
-        documents.remove(at: index)
+        let removedDocument = documents.remove(at: index)
+        let deletedAt = Self.storeTimestamp()
         deletionRecords.removeAll { $0.id == id }
-        deletionRecords.append(NotyDeletionRecord(id: id, deletedAt: Self.storeTimestamp()))
+        deletionRecords.append(NotyDeletionRecord(id: id, deletedAt: deletedAt))
         let saved = persistCurrentManifest()
         if saved {
-            moveDeletedAssetsToLocalTrash(documentID: id)
+            moveDeletedDocumentToLocalTrash(removedDocument, deletedAt: deletedAt)
+        }
+    }
+
+    func restoreTrashedDocument(id: UUID) {
+        guard let itemIndex = trashItems.firstIndex(where: { $0.id == id }) else { return }
+        let item = trashItems[itemIndex]
+        var document = item.document
+        if let folderID = document.folderID, !folders.contains(where: { $0.id == folderID }) {
+            document.folderID = nil
+        }
+        document.updatedAt = Self.storeTimestamp(max(Date.now, document.updatedAt.addingTimeInterval(0.001)))
+
+        let packageURL = trashDirectoryURL.appendingPathComponent(item.recoveryDirectoryName, isDirectory: true)
+        let trashedAssetsURL = packageURL.appendingPathComponent("Assets", isDirectory: true)
+        let restoredAssetsURL = assetDirectoryURL(documentID: id)
+
+        do {
+            if fileManager.fileExists(atPath: restoredAssetsURL.path) {
+                try fileManager.removeItem(at: restoredAssetsURL)
+            }
+            if fileManager.fileExists(atPath: trashedAssetsURL.path) {
+                try fileManager.createDirectory(at: restoredAssetsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try fileManager.moveItem(at: trashedAssetsURL, to: restoredAssetsURL)
+            } else {
+                try fileManager.createDirectory(at: restoredAssetsURL, withIntermediateDirectories: true)
+            }
+
+            documents.append(document)
+            deletionRecords.removeAll { $0.id == id }
+            trashItems.remove(at: itemIndex)
+
+            guard persistCurrentManifest() else {
+                documents.removeAll { $0.id == id }
+                deletionRecords.append(NotyDeletionRecord(id: id, deletedAt: item.deletedAt))
+                trashItems.insert(item, at: min(itemIndex, trashItems.count))
+                if fileManager.fileExists(atPath: restoredAssetsURL.path) {
+                    try? fileManager.moveItem(at: restoredAssetsURL, to: trashedAssetsURL)
+                }
+                return
+            }
+
+            try? fileManager.removeItem(at: packageURL)
+            lastOperationMessage = "“\(document.title)” was restored from Trash."
+        } catch {
+            lastOperationMessage = "The document could not be restored: \(error.localizedDescription)"
+        }
+    }
+
+    func permanentlyDeleteTrashedDocument(id: UUID) {
+        guard let itemIndex = trashItems.firstIndex(where: { $0.id == id }) else { return }
+        let item = trashItems.remove(at: itemIndex)
+        let packageURL = trashDirectoryURL.appendingPathComponent(item.recoveryDirectoryName, isDirectory: true)
+        do {
+            if fileManager.fileExists(atPath: packageURL.path) {
+                try fileManager.removeItem(at: packageURL)
+            }
+            try? fileManager.removeItem(at: userImportsDirectoryURL(documentID: id))
+            lastOperationMessage = "The document was permanently deleted."
+        } catch {
+            trashItems.insert(item, at: min(itemIndex, trashItems.count))
+            lastOperationMessage = "The document could not be permanently deleted: \(error.localizedDescription)"
+        }
+    }
+
+    func emptyTrash() {
+        let ids = trashItems.map(\.id)
+        for id in ids {
+            permanentlyDeleteTrashedDocument(id: id)
         }
     }
 
@@ -246,6 +318,7 @@ final class NotyStore {
         if persistCurrentManifest() {
             try? fileManager.removeItem(at: drawingURL(documentID: documentID, pageID: pageID))
             try? fileManager.removeItem(at: handwritingTextURL(documentID: documentID, pageID: pageID))
+            try? fileManager.removeItem(at: pageImagesDirectoryURL(documentID: documentID, pageID: pageID))
         }
     }
 
@@ -266,10 +339,19 @@ final class NotyStore {
                 var copy = textBox
                 copy.id = UUID()
                 return copy
-            }
+            },
+            images: sourcePage.images.map { image in
+                var copy = image
+                copy.id = UUID()
+                return copy
+            },
+            isBookmarked: false,
+            bookmarkTitle: nil
         )
         let copiedDrawingURL = drawingURL(documentID: documentID, pageID: duplicatedPage.id)
         let copiedHandwritingURL = handwritingTextURL(documentID: documentID, pageID: duplicatedPage.id)
+        let sourceImagesURL = pageImagesDirectoryURL(documentID: documentID, pageID: pageID)
+        let copiedImagesURL = pageImagesDirectoryURL(documentID: documentID, pageID: duplicatedPage.id)
         do {
             let sourceDrawingURL = drawingURL(documentID: documentID, pageID: pageID)
             if fileManager.fileExists(atPath: sourceDrawingURL.path) {
@@ -281,9 +363,14 @@ final class NotyStore {
                 try fileManager.createDirectory(at: copiedHandwritingURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try fileManager.copyItem(at: sourceHandwritingURL, to: copiedHandwritingURL)
             }
+            if fileManager.fileExists(atPath: sourceImagesURL.path) {
+                try fileManager.createDirectory(at: copiedImagesURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try fileManager.copyItem(at: sourceImagesURL, to: copiedImagesURL)
+            }
         } catch {
             try? fileManager.removeItem(at: copiedDrawingURL)
             try? fileManager.removeItem(at: copiedHandwritingURL)
+            try? fileManager.removeItem(at: copiedImagesURL)
             lastOperationMessage = "The page could not be duplicated: \(error.localizedDescription)"
             return nil
         }
@@ -296,6 +383,7 @@ final class NotyStore {
             documents[documentIndex] = previousDocument
             try? fileManager.removeItem(at: copiedDrawingURL)
             try? fileManager.removeItem(at: copiedHandwritingURL)
+            try? fileManager.removeItem(at: copiedImagesURL)
             return nil
         }
         if let copiedDrawingData = try? Data(contentsOf: copiedDrawingURL) {
@@ -332,6 +420,101 @@ final class NotyStore {
         touchDocument(at: documentIndex)
         lastOperationMessage = nil
         persistCurrentManifest()
+    }
+
+    func updatePageBookmark(documentID: UUID, pageID: UUID, isBookmarked: Bool) {
+        guard let documentIndex = documents.firstIndex(where: { $0.id == documentID }),
+              let pageIndex = documents[documentIndex].pages.firstIndex(where: { $0.id == pageID }) else {
+            lastOperationMessage = NotyStoreError.pageNotFound.localizedDescription
+            return
+        }
+        documents[documentIndex].pages[pageIndex].isBookmarked = isBookmarked
+        touchDocument(at: documentIndex)
+        lastOperationMessage = nil
+        persistCurrentManifest()
+    }
+
+    @discardableResult
+    func addPageImage(data: Data, documentID: UUID, pageID: UUID) throws -> NotyPageImage {
+        guard let documentIndex = documents.firstIndex(where: { $0.id == documentID }),
+              let pageIndex = documents[documentIndex].pages.firstIndex(where: { $0.id == pageID }) else {
+            throw NotyStoreError.pageNotFound
+        }
+        guard let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 else {
+            throw NotyStoreError.invalidImage
+        }
+
+        let normalizedData: Data
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
+        let normalizedImage = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+        guard let pngData = normalizedImage.pngData() else {
+            throw NotyStoreError.invalidImage
+        }
+        normalizedData = pngData
+
+        let fileName = "\(UUID().uuidString).png"
+        let directory = pageImagesDirectoryURL(documentID: documentID, pageID: pageID)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent(fileName)
+        try normalizedData.write(to: fileURL, options: .atomic)
+
+        let maxWidth = 320.0
+        let maxHeight = 360.0
+        let aspect = Double(image.size.width / image.size.height)
+        var width = maxWidth
+        var height = width / max(aspect, 0.01)
+        if height > maxHeight {
+            height = maxHeight
+            width = height * aspect
+        }
+        let pageImage = NotyPageImage(
+            fileName: fileName,
+            x: max(24, (612 - width) / 2),
+            y: max(24, (792 - height) / 2),
+            width: width,
+            height: height
+        )
+
+        documents[documentIndex].pages[pageIndex].images.append(pageImage)
+        touchDocument(at: documentIndex)
+        lastOperationMessage = nil
+        guard persistCurrentManifest() else {
+            documents[documentIndex].pages[pageIndex].images.removeAll { $0.id == pageImage.id }
+            try? fileManager.removeItem(at: fileURL)
+            throw CocoaError(.fileWriteUnknown)
+        }
+        return pageImage
+    }
+
+    func updatePageImages(documentID: UUID, pageID: UUID, images: [NotyPageImage]) {
+        guard let documentIndex = documents.firstIndex(where: { $0.id == documentID }),
+              let pageIndex = documents[documentIndex].pages.firstIndex(where: { $0.id == pageID }) else {
+            lastOperationMessage = NotyStoreError.pageNotFound.localizedDescription
+            return
+        }
+        let previousImages = documents[documentIndex].pages[pageIndex].images
+        documents[documentIndex].pages[pageIndex].images = images
+        touchDocument(at: documentIndex)
+        lastOperationMessage = nil
+        if persistCurrentManifest() {
+            let retainedNames = Set(images.map(\.fileName))
+            for removed in previousImages where !retainedNames.contains(removed.fileName) {
+                try? fileManager.removeItem(
+                    at: pageImagesDirectoryURL(documentID: documentID, pageID: pageID)
+                        .appendingPathComponent(removed.fileName)
+                )
+            }
+        }
+    }
+
+    func pageImage(documentID: UUID, pageID: UUID, image: NotyPageImage) -> UIImage? {
+        UIImage(contentsOfFile: pageImagesDirectoryURL(documentID: documentID, pageID: pageID)
+            .appendingPathComponent(image.fileName).path)
     }
 
     func saveDrawing(_ drawing: PKDrawing, documentID: UUID, pageID: UUID) {
@@ -691,6 +874,12 @@ final class NotyStore {
             .appendingPathComponent("\(pageID.uuidString).txt")
     }
 
+    func pageImagesDirectoryURL(documentID: UUID, pageID: UUID) -> URL {
+        assetDirectoryURL(documentID: documentID)
+            .appendingPathComponent("Images", isDirectory: true)
+            .appendingPathComponent(pageID.uuidString, isDirectory: true)
+    }
+
     func userImportsDirectoryURL(documentID: UUID) -> URL {
         let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? storageDirectoryURL.appendingPathComponent("Visible Documents", isDirectory: true)
@@ -703,6 +892,7 @@ final class NotyStore {
     private var manifestURL: URL { storageDirectoryURL.appendingPathComponent("manifest.json") }
     private var manifestBackupURL: URL { storageDirectoryURL.appendingPathComponent("manifest.previous.json") }
     private var mirrorBookmarkURL: URL { storageDirectoryURL.appendingPathComponent("icloud-folder.bookmark") }
+    private var trashDirectoryURL: URL { storageDirectoryURL.appendingPathComponent("Trash", isDirectory: true) }
 
     private func loadLocalManifest() {
         for url in [manifestURL, manifestBackupURL] where fileManager.fileExists(atPath: url.path) {
@@ -721,6 +911,31 @@ final class NotyStore {
                 lastPersistenceError = "A saved library file could not be read: \(error.localizedDescription)"
             }
         }
+    }
+
+    private func loadLocalTrash() {
+        guard let packages = try? fileManager.contentsOfDirectory(
+            at: trashDirectoryURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            trashItems = []
+            return
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .millisecondsSince1970
+        var recovered: [NotyTrashedDocument] = []
+        for package in packages {
+            let metadataURL = package.appendingPathComponent("item.json")
+            guard let data = try? Data(contentsOf: metadataURL),
+                  var item = try? decoder.decode(NotyTrashedDocument.self, from: data) else {
+                continue
+            }
+            item.recoveryDirectoryName = package.lastPathComponent
+            recovered.append(item)
+        }
+        trashItems = recovered.sorted { $0.deletedAt > $1.deletedAt }
     }
 
     private func persist(_ manifest: NotyStoreManifest) throws {
@@ -942,16 +1157,30 @@ final class NotyStore {
         }
     }
 
-    private func moveDeletedAssetsToLocalTrash(documentID: UUID) {
-        let source = assetDirectoryURL(documentID: documentID)
-        guard fileManager.fileExists(atPath: source.path) else { return }
-        let trash = storageDirectoryURL.appendingPathComponent("Trash", isDirectory: true)
-            .appendingPathComponent("\(documentID.uuidString)-\(Int(Date.now.timeIntervalSince1970))", isDirectory: true)
+    private func moveDeletedDocumentToLocalTrash(_ document: NotyDocument, deletedAt: Date) {
+        let source = assetDirectoryURL(documentID: document.id)
+        let directoryName = "\(document.id.uuidString)-\(Int(deletedAt.timeIntervalSince1970))"
+        let packageURL = trashDirectoryURL.appendingPathComponent(directoryName, isDirectory: true)
+        let trashedAssetsURL = packageURL.appendingPathComponent("Assets", isDirectory: true)
         do {
-            try fileManager.createDirectory(at: trash.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try fileManager.moveItem(at: source, to: trash)
+            try fileManager.createDirectory(at: packageURL, withIntermediateDirectories: true)
+            if fileManager.fileExists(atPath: source.path) {
+                try fileManager.moveItem(at: source, to: trashedAssetsURL)
+            }
+
+            let item = NotyTrashedDocument(
+                document: document,
+                deletedAt: deletedAt,
+                recoveryDirectoryName: directoryName
+            )
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .millisecondsSince1970
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(item).write(to: packageURL.appendingPathComponent("item.json"), options: .atomic)
+            trashItems.removeAll { $0.id == document.id }
+            trashItems.insert(item, at: 0)
         } catch {
-            lastOperationMessage = "The document was removed from the library, but its local files could not be moved to recovery storage: \(error.localizedDescription)"
+            lastOperationMessage = "The document was removed from the library, but its local files could not be moved to Trash: \(error.localizedDescription)"
         }
     }
 
