@@ -34,9 +34,9 @@ final class NotyImportantFeaturesTests: XCTestCase {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 120, height: 80))
         let image = renderer.image { context in
             UIColor.white.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 120, height: 80))
+            context.cgContext.fill(CGRect(x: 0, y: 0, width: 120, height: 80))
             UIColor.black.setFill()
-            context.fill(CGRect(x: 20, y: 20, width: 80, height: 40))
+            context.cgContext.fill(CGRect(x: 20, y: 20, width: 80, height: 40))
         }
         let data = try XCTUnwrap(image.pngData())
         let pageImage = try store.addPageImage(data: data, documentID: document.id, pageID: pageID)
@@ -80,7 +80,7 @@ final class NotyImportantFeaturesTests: XCTestCase {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 40))
         let data = try XCTUnwrap(renderer.image { context in
             UIColor.black.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+            context.cgContext.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
         }.pngData())
         _ = try store.addPageImage(data: data, documentID: document.id, pageID: pageID)
 
