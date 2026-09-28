@@ -165,6 +165,15 @@ struct LibraryView: View {
                 }
                 .buttonStyle(.plain)
                 .notionSidebarRow(isSelected: selection == .favorites)
+
+                Button {
+                    selection = .trash
+                    searchText = ""
+                } label: {
+                    sidebarDestination("Trash", symbol: "trash", count: store.trashItems.count)
+                }
+                .buttonStyle(.plain)
+                .notionSidebarRow(isSelected: selection == .trash)
             } header: {
                 NotionSectionLabel(text: "Workspace")
             }
@@ -221,32 +230,40 @@ struct LibraryView: View {
                     pageHeader
                         .padding(.bottom, 26)
 
-                    if store.lastPersistenceError?.isEmpty == false {
-                        persistenceWarning(store.lastPersistenceError ?? "")
-                            .padding(.bottom, 12)
-                    }
-
-                    if store.iCloudMirrorFolderURL == nil {
-                        iCloudBackupStatus
-                            .padding(.bottom, 20)
+                    if selection == .trash {
+                        if visibleTrashItems.isEmpty {
+                            emptyState
+                        } else {
+                            trashList
+                        }
                     } else {
-                        iCloudBackupStatus
-                            .padding(.bottom, 14)
-                    }
-                    if oneDrive.isConnected || oneDrive.lastError != nil {
-                        oneDriveBackupStatus
-                            .padding(.bottom, 14)
-                    }
+                        if store.lastPersistenceError?.isEmpty == false {
+                            persistenceWarning(store.lastPersistenceError ?? "")
+                                .padding(.bottom, 12)
+                        }
 
-                    if !visibleFolders.isEmpty {
-                        folderList
-                            .padding(.bottom, 24)
-                    }
-                    if !visibleDocuments.isEmpty {
-                        documentList
-                    }
-                    if visibleFolders.isEmpty && visibleDocuments.isEmpty {
-                        emptyState
+                        if store.iCloudMirrorFolderURL == nil {
+                            iCloudBackupStatus
+                                .padding(.bottom, 20)
+                        } else {
+                            iCloudBackupStatus
+                                .padding(.bottom, 14)
+                        }
+                        if oneDrive.isConnected || oneDrive.lastError != nil {
+                            oneDriveBackupStatus
+                                .padding(.bottom, 14)
+                        }
+
+                        if !visibleFolders.isEmpty {
+                            folderList
+                                .padding(.bottom, 24)
+                        }
+                        if !visibleDocuments.isEmpty {
+                            documentList
+                        }
+                        if visibleFolders.isEmpty && visibleDocuments.isEmpty {
+                            emptyState
+                        }
                     }
                 }
                 .padding(.horizontal, 48)
@@ -261,31 +278,41 @@ struct LibraryView: View {
             .searchable(text: $searchText, prompt: "Search library")
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    Button {
-                        isImporting = true
-                    } label: {
-                        Label("Import", systemImage: "square.and.arrow.down")
-                    }
-                    .help("Import PDF or Office documents from Files")
+                    if selection == .trash {
+                        if !store.trashItems.isEmpty {
+                            Button(role: .destructive) {
+                                deleteTarget = .emptyTrash
+                            } label: {
+                                Label("Empty Trash", systemImage: "trash.slash")
+                            }
+                        }
+                    } else {
+                        Button {
+                            isImporting = true
+                        } label: {
+                            Label("Import", systemImage: "square.and.arrow.down")
+                        }
+                        .help("Import PDF or Office documents from Files")
 
-                    Menu {
-                        Button("New note", systemImage: "square.and.pencil") {
-                            createDocument(.note)
+                        Menu {
+                            Button("New note", systemImage: "square.and.pencil") {
+                                createDocument(.note)
+                            }
+                            Button("New book", systemImage: "books.vertical") {
+                                createDocument(.book)
+                            }
+                            Button("New folder", systemImage: "folder.badge.plus") {
+                                present(.name(.newFolder(parentID: selectedFolderID)))
+                            }
+                            Divider()
+                            Button("Settings", systemImage: "gearshape") {
+                                present(.settings)
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
                         }
-                        Button("New book", systemImage: "books.vertical") {
-                            createDocument(.book)
-                        }
-                        Button("New folder", systemImage: "folder.badge.plus") {
-                            present(.name(.newFolder(parentID: selectedFolderID)))
-                        }
-                        Divider()
-                        Button("Settings", systemImage: "gearshape") {
-                            present(.settings)
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
+                        .accessibilityLabel("More library actions")
                     }
-                    .accessibilityLabel("More library actions")
                 }
             }
             .navigationDestination(for: UUID.self) { documentID in
@@ -392,6 +419,7 @@ struct LibraryView: View {
         if !searchText.isEmpty { return "No results" }
         if selection == .favorites { return "No favorites yet" }
         if selection == .recents { return "No recent pages" }
+        if selection == .trash { return "Trash is empty" }
         return "Nothing here yet"
     }
 
@@ -399,6 +427,7 @@ struct LibraryView: View {
         if !searchText.isEmpty { return "Try another title, folder, or note text." }
         if selection == .favorites { return "Favorite pages will appear here." }
         if selection == .recents { return "Pages you open will appear here." }
+        if selection == .trash { return "Deleted documents stay here until you restore or permanently delete them." }
         return "Create a note or book, or import a PDF from Files."
     }
 
@@ -667,6 +696,7 @@ struct LibraryView: View {
         case .all: return "Library"
         case .recents: return "Recents"
         case .favorites: return "Favorites"
+        case .trash: return "Trash"
         case .folder: return currentFolder?.name ?? "Folder"
         }
     }
@@ -682,6 +712,8 @@ struct LibraryView: View {
             return "Pages you have opened recently"
         case .favorites:
             return "Pages you have saved for quick access"
+        case .trash:
+            return "Restore deleted documents or remove them permanently"
         case .folder:
             return "Pages and folders in this location"
         }
@@ -715,11 +747,21 @@ struct LibraryView: View {
                 return sortOrder == .edited ? recentPages : sortDocuments(recentPages)
             case .favorites:
                 candidates = favoriteDocuments
+            case .trash:
+                candidates = []
             case .folder:
                 candidates = store.documents.filter { $0.folderID == selectedFolderID }
             }
         }
         return sortDocuments(candidates)
+    }
+
+    private var visibleTrashItems: [NotyTrashedDocument] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let items = query.isEmpty
+            ? store.trashItems
+            : store.trashItems.filter { $0.document.title.localizedCaseInsensitiveContains(query) }
+        return items.sorted { $0.deletedAt > $1.deletedAt }
     }
 
     private var recentDocuments: [NotyDocument] {
@@ -778,6 +820,59 @@ struct LibraryView: View {
         return result
     }
 
+    private var trashList: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                NotionSectionLabel(text: "Deleted documents")
+                Spacer()
+                Text("\(visibleTrashItems.count)")
+                    .font(.system(size: 12))
+                    .foregroundStyle(NotionTheme.inkTertiary)
+            }
+            .padding(.bottom, 2)
+
+            ForEach(visibleTrashItems) { item in
+                HStack(spacing: 12) {
+                    DocumentPreview(document: item.document)
+                        .frame(width: 42, height: 56)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(item.document.title)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(NotionTheme.ink)
+                            .lineLimit(1)
+                        Text("Deleted \(item.deletedAt.formatted(date: .abbreviated, time: .shortened)) · \(item.document.pages.count) \(item.document.pages.count == 1 ? "page" : "pages")")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(NotionTheme.inkTertiary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    Button("Restore") {
+                        store.restoreTrashedDocument(id: item.id)
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 12, weight: .medium))
+                    Button(role: .destructive) {
+                        deleteTarget = .trashedDocument(item.id)
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Permanently delete \(item.document.title)")
+                }
+                .frame(minHeight: 64)
+                .contextMenu {
+                    Button("Restore", systemImage: "arrow.uturn.backward") {
+                        store.restoreTrashedDocument(id: item.id)
+                    }
+                    Button("Delete permanently", systemImage: "trash", role: .destructive) {
+                        deleteTarget = .trashedDocument(item.id)
+                    }
+                }
+                Rectangle().fill(NotionTheme.hairline).frame(height: 1)
+            }
+        }
+    }
+
     private var documentRevisionSignature: String {
         store.documents
             .sorted { $0.id.uuidString < $1.id.uuidString }
@@ -795,7 +890,9 @@ struct LibraryView: View {
     private var deletePrompt: String {
         switch deleteTarget {
         case .folder: "Remove this folder?"
-        case .document: "Delete this document?"
+        case .document: "Move this document to Trash?"
+        case .trashedDocument: "Permanently delete this document?"
+        case .emptyTrash: "Empty Trash?"
         case nil: "Delete?"
         }
     }
@@ -803,7 +900,9 @@ struct LibraryView: View {
     private var deleteMessage: String {
         switch deleteTarget {
         case .folder: "Its documents and subfolders will move to its parent folder or the library."
-        case .document: "This document and its pages will be removed from Noty."
+        case .document: "You can restore it later from Trash."
+        case .trashedDocument: "This cannot be undone."
+        case .emptyTrash: "Every document in Trash will be permanently deleted. This cannot be undone."
         case nil: ""
         }
     }
@@ -1032,6 +1131,10 @@ struct LibraryView: View {
             if selectedFolderID == folderID { selection = .all }
         case .document(let documentID):
             store.deleteDocument(id: documentID)
+        case .trashedDocument(let documentID):
+            store.permanentlyDeleteTrashedDocument(id: documentID)
+        case .emptyTrash:
+            store.emptyTrash()
         case nil:
             break
         }
@@ -1148,6 +1251,7 @@ private enum LibrarySelection: Hashable {
     case all
     case recents
     case favorites
+    case trash
     case folder(UUID)
 }
 
@@ -1170,6 +1274,8 @@ private enum LibrarySortOrder: String, CaseIterable, Identifiable {
 private enum DeleteTarget {
     case folder(UUID)
     case document(UUID)
+    case trashedDocument(UUID)
+    case emptyTrash
 }
 
 private enum FolderPickerDestination {
