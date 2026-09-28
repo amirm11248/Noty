@@ -1,4 +1,6 @@
 import BackgroundTasks
+import FontInter
+import FontKit
 import SwiftUI
 import UIKit
 
@@ -9,6 +11,12 @@ struct NotyApp: App {
     @State private var oneDrive = OneDriveService()
     @State private var importAlertTitle = "Import"
     @State private var importAlertMessage: String?
+
+    init() {
+        // Notion's default product typography is Inter. Register it once before
+        // any SwiftUI view resolves the shared NotionTheme fonts.
+        FontKit.registerInter()
+    }
 
     var body: some Scene {
         WindowGroup {
