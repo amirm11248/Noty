@@ -17,6 +17,10 @@ struct DocumentEditorView: View {
     @State private var selectedImageID: UUID?
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isPresentationMode = false
+    @State private var isPresenterControlsVisible = true
+    @State private var isLaserPointerEnabled = false
+    @State private var presenterLaserLocation: CGPoint?
+    @State private var isPresenterBlackout = false
     @State private var isToolPickerVisible = false
     @State private var isShowingThumbnails = true
     @State private var isShowingRename = false
@@ -725,17 +729,52 @@ struct DocumentEditorView: View {
                 if let page = selectedPage {
                     toolbarDivider
                     Menu {
-                        if page.sourcePageIndex == nil {
-                            Section("Paper") {
-                                ForEach(NotyPageTemplate.allCases, id: \.self) { template in
-                                    Button {
-                                        store.updatePageTemplate(documentID: documentID, pageID: page.id, template: template)
-                                    } label: {
-                                        if page.template == template {
-                                            Label(template.editorLabel, systemImage: "checkmark")
-                                        } else {
-                                            Label(template.editorLabel, systemImage: template.symbolName)
-                                        }
+                        Section("Paper design") {
+                            ForEach(NotyPageTemplate.allCases, id: \.self) { template in
+                                Button {
+                                    store.updatePageFormat(documentID: documentID, pageID: page.id, template: template)
+                                } label: {
+                                    if page.template == template {
+                                        Label(template.editorLabel, systemImage: "checkmark")
+                                    } else {
+                                        Label(template.editorLabel, systemImage: template.symbolName)
+                                    }
+                                }
+                            }
+                        }
+                        Section("Paper color") {
+                            ForEach(paperColorPresets, id: \.hex) { preset in
+                                Button {
+                                    store.updatePageFormat(documentID: documentID, pageID: page.id, paperColorHex: preset.hex)
+                                } label: {
+                                    Label(preset.name, systemImage: page.paperColorHex.uppercased() == preset.hex ? "checkmark.circle.fill" : "circle.fill")
+                                        .tint(Color(hex: preset.hex))
+                                }
+                            }
+                            ColorPicker("Custom color", selection: paperColorBinding(for: page), supportsOpacity: false)
+                        }
+                        Section("Paper size") {
+                            ForEach(NotyPageSizePreset.allCases, id: \.self) { size in
+                                Button {
+                                    store.updatePageFormat(documentID: documentID, pageID: page.id, sizePreset: size)
+                                } label: {
+                                    if page.sizePreset == size {
+                                        Label(size.editorLabel, systemImage: "checkmark")
+                                    } else {
+                                        Label(size.editorLabel, systemImage: size.symbolName)
+                                    }
+                                }
+                            }
+                        }
+                        Section("Orientation") {
+                            ForEach(NotyPageOrientation.allCases, id: \.self) { orientation in
+                                Button {
+                                    store.updatePageFormat(documentID: documentID, pageID: page.id, orientation: orientation)
+                                } label: {
+                                    if page.orientation == orientation {
+                                        Label(orientation.editorLabel, systemImage: "checkmark")
+                                    } else {
+                                        Label(orientation.editorLabel, systemImage: orientation.symbolName)
                                     }
                                 }
                             }
@@ -831,6 +870,30 @@ struct DocumentEditorView: View {
         }
     }
 
+    private var paperColorPresets: [(name: String, hex: String)] {
+        [
+            ("White", "FFFFFF"),
+            ("Ivory", "FFFDF5"),
+            ("Cream", "FFF7E0"),
+            ("Soft yellow", "FFF3B0"),
+            ("Soft blue", "EAF4FF"),
+            ("Soft green", "ECF7EE"),
+            ("Soft pink", "FCECEF"),
+            ("Light gray", "F1F1EF"),
+            ("Charcoal", "292927")
+        ]
+    }
+
+    private func paperColorBinding(for page: NotyPage) -> Binding<Color> {
+        Binding(
+            get: { Color(hex: page.paperColorHex) },
+            set: { color in
+                guard let hex = color.hexString else { return }
+                store.updatePageFormat(documentID: documentID, pageID: page.id, paperColorHex: hex)
+            }
+        )
+    }
+
     private func saveCurrentInkColorPreset() {
         let preset = inkColorHex.uppercased()
         guard !customInkColors.contains(preset) else { return }
@@ -841,10 +904,12 @@ struct DocumentEditorView: View {
     private func canvasArea(_ document: NotyDocument, sourcePDF: PDFDocument?) -> some View {
         if let page = selectedPage {
             GeometryReader { proxy in
+                let canvasSize = page.canvasSize
                 let availableWidth = max(proxy.size.width - 48, 100)
                 let availableHeight = max(proxy.size.height - 40, 100)
-                let baseWidth = min(availableWidth, availableHeight * EditorCanvas.width / EditorCanvas.height, 760)
-                let baseHeight = baseWidth * EditorCanvas.height / EditorCanvas.width
+                let aspect = canvasSize.width / canvasSize.height
+                let baseWidth = min(availableWidth, availableHeight * aspect, 880)
+                let baseHeight = baseWidth / aspect
                 let pageWidth = baseWidth * zoomScale
                 let pageHeight = baseHeight * zoomScale
 
