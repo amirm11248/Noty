@@ -1656,7 +1656,7 @@ private struct LibrarySettingsView: View {
             folderPickerDestination = nil
         }
         .alert(
-            "Folder access",
+            "Noty",
             isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
