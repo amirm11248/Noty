@@ -6,7 +6,7 @@ import UIKit
 
 @MainActor
 enum NotyExportService {
-    private static let canvasSize = CGSize(width: 612, height: 792)
+    private static let defaultCanvasSize = CGSize(width: 612, height: 792)
 
     /// Creates a uniquely named, user-facing PDF in Documents so it remains available
     /// after the share sheet closes and can be saved or uploaded later.
@@ -51,11 +51,12 @@ enum NotyExportService {
     }
 
     private static func makePDF(document: NotyDocument, store: NotyStore) throws -> Data {
-        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: canvasSize))
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: defaultCanvasSize))
         let sourcePDF = store.sourcePDF(documentID: document.id)
         return renderer.pdfData { context in
             for page in document.pages {
-                context.beginPage()
+                let bounds = CGRect(origin: .zero, size: page.canvasSize)
+                context.beginPage(withBounds: bounds, pageInfo: [:])
                 drawPage(page, documentID: document.id, store: store, sourcePDF: sourcePDF, in: context.cgContext)
             }
         }
@@ -71,7 +72,7 @@ enum NotyExportService {
         let format = UIGraphicsImageRendererFormat()
         format.scale = scale
         format.opaque = true
-        let renderer = UIGraphicsImageRenderer(size: canvasSize, format: format)
+        let renderer = UIGraphicsImageRenderer(size: page.canvasSize, format: format)
         return renderer.image { context in
             drawPage(page, documentID: documentID, store: store, sourcePDF: sourcePDF, in: context.cgContext)
         }
@@ -84,15 +85,15 @@ enum NotyExportService {
         sourcePDF: PDFDocument?,
         in cgContext: CGContext
     ) {
-        let bounds = CGRect(origin: .zero, size: canvasSize)
-        UIColor.white.setFill()
+        let bounds = CGRect(origin: .zero, size: page.canvasSize)
+        color(hex: page.paperColorHex).setFill()
         cgContext.fill(bounds)
 
         if let sourcePageIndex = page.sourcePageIndex,
            let sourcePage = sourcePDF?.page(at: sourcePageIndex) {
             drawOriginalPDFPage(sourcePage, into: bounds, context: cgContext)
         } else {
-            drawTemplate(page.template, in: cgContext)
+            drawTemplate(page.template, paperColorHex: page.paperColorHex, bounds: bounds, in: cgContext)
         }
 
         for pageImage in page.images {
@@ -110,7 +111,7 @@ enum NotyExportService {
         }
 
         for textBox in page.textBoxes {
-            drawTextBox(textBox, in: cgContext)
+            drawTextBox(textBox, canvasSize: page.canvasSize, in: cgContext)
         }
     }
 
@@ -142,45 +143,80 @@ enum NotyExportService {
         context.restoreGState()
     }
 
-    private static func drawTemplate(_ template: NotyPageTemplate, in context: CGContext) {
-        let bounds = CGRect(origin: .zero, size: canvasSize)
-        let lineColor = UIColor(red: 55 / 255, green: 53 / 255, blue: 47 / 255, alpha: 0.12).cgColor
+    private static func drawTemplate(
+        _ template: NotyPageTemplate,
+        paperColorHex: String,
+        bounds: CGRect,
+        in context: CGContext
+    ) {
+        let paper = color(hex: paperColorHex)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        paper.getRed(&red, green: &green, blue: &blue, alpha: nil)
+        let luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        let lineUIColor = luminance < 0.48
+            ? UIColor.white.withAlphaComponent(0.24)
+            : UIColor(red: 55 / 255, green: 53 / 255, blue: 47 / 255, alpha: 0.12)
+        let lineColor = lineUIColor.cgColor
+
         context.saveGState()
         context.setStrokeColor(lineColor)
         context.setFillColor(lineColor)
         switch template {
         case .blank:
             break
-        case .ruled:
+        case .ruled, .narrowRuled:
+            let spacing = template == .narrowRuled ? 20.0 : 28.0
             context.setLineWidth(0.7)
-            for y in stride(from: 34.0, through: bounds.height, by: 28.0) {
+            for y in stride(from: 34.0, through: bounds.height, by: spacing) {
                 context.move(to: CGPoint(x: 28, y: y))
                 context.addLine(to: CGPoint(x: bounds.width - 24, y: y))
             }
             context.strokePath()
             context.setAlpha(0.65)
-            context.move(to: CGPoint(x: 56, y: 0))
-            context.addLine(to: CGPoint(x: 56, y: bounds.height))
+            let marginX = min(56, bounds.width * 0.12)
+            context.move(to: CGPoint(x: marginX, y: 0))
+            context.addLine(to: CGPoint(x: marginX, y: bounds.height))
             context.strokePath()
-        case .grid:
+        case .grid, .smallGrid:
+            let spacing = template == .smallGrid ? 16.0 : 24.0
             context.setLineWidth(0.55)
-            context.setAlpha(0.55)
-            for x in stride(from: 18.0, through: bounds.width, by: 24.0) {
+            context.setAlpha(0.8)
+            for x in stride(from: spacing, through: bounds.width, by: spacing) {
                 context.move(to: CGPoint(x: x, y: 0))
                 context.addLine(to: CGPoint(x: x, y: bounds.height))
             }
-            for y in stride(from: 18.0, through: bounds.height, by: 24.0) {
+            for y in stride(from: spacing, through: bounds.height, by: spacing) {
                 context.move(to: CGPoint(x: 0, y: y))
                 context.addLine(to: CGPoint(x: bounds.width, y: y))
             }
             context.strokePath()
         case .dots:
-            context.setAlpha(0.72)
+            context.setAlpha(0.85)
             for x in stride(from: 18.0, through: bounds.width, by: 24.0) {
                 for y in stride(from: 18.0, through: bounds.height, by: 24.0) {
-                    context.fillEllipse(in: CGRect(x: x - 0.8, y: y - 0.8, width: 1.6, height: 1.6))
+                    context.fillEllipse(in: CGRect(x: x - 0.9, y: y - 0.9, width: 1.8, height: 1.8))
                 }
             }
+        case .cornell:
+            let cueX = max(90, bounds.width * 0.3)
+            let summaryY = max(120, bounds.height - 110)
+            context.setLineWidth(0.8)
+            context.move(to: CGPoint(x: cueX, y: 54))
+            context.addLine(to: CGPoint(x: cueX, y: summaryY))
+            context.move(to: CGPoint(x: 24, y: 54))
+            context.addLine(to: CGPoint(x: bounds.width - 24, y: 54))
+            context.move(to: CGPoint(x: 24, y: summaryY))
+            context.addLine(to: CGPoint(x: bounds.width - 24, y: summaryY))
+            context.strokePath()
+            context.setLineWidth(0.55)
+            context.setAlpha(0.75)
+            for y in stride(from: 82.0, through: summaryY - 12, by: 28.0) {
+                context.move(to: CGPoint(x: cueX + 12, y: y))
+                context.addLine(to: CGPoint(x: bounds.width - 24, y: y))
+            }
+            context.strokePath()
         }
         context.restoreGState()
     }
@@ -199,22 +235,9 @@ enum NotyExportService {
         context.restoreGState()
     }
 
-    private static func drawTextBox(_ box: NotyTextBox, in context: CGContext) {
+    private static func drawTextBox(_ box: NotyTextBox, canvasSize: CGSize, in context: CGContext) {
         let rect = CGRect(x: CGFloat(box.x), y: CGFloat(box.y), width: CGFloat(box.width), height: CGFloat(box.height))
         let insetRect = rect.insetBy(dx: 9, dy: 8)
-        let paper = UIColor(white: 1, alpha: 0.97)
-        let border = UIColor(red: 55 / 255, green: 53 / 255, blue: 47 / 255, alpha: 0.16)
-        let boxPath = CGPath(roundedRect: rect, cornerWidth: 7, cornerHeight: 7, transform: nil)
-        context.saveGState()
-        context.setFillColor(paper.cgColor)
-        context.addPath(boxPath)
-        context.fillPath()
-        context.setStrokeColor(border.cgColor)
-        context.setLineWidth(0.7)
-        context.addPath(boxPath)
-        context.strokePath()
-        context.restoreGState()
-
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping
         switch box.alignment {

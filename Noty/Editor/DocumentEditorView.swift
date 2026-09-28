@@ -17,6 +17,10 @@ struct DocumentEditorView: View {
     @State private var selectedImageID: UUID?
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isPresentationMode = false
+    @State private var isPresenterControlsVisible = true
+    @State private var isLaserPointerEnabled = false
+    @State private var presenterLaserLocation: CGPoint?
+    @State private var isPresenterBlackout = false
     @State private var isToolPickerVisible = false
     @State private var isShowingThumbnails = true
     @State private var isShowingRename = false
@@ -155,56 +159,153 @@ struct DocumentEditorView: View {
     }
 
     private func presentation(_ document: NotyDocument) -> some View {
-        ZStack(alignment: .topTrailing) {
-            canvasArea(document, sourcePDF: sourcePDF)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(EditorPalette.workspace)
+        GeometryReader { proxy in
+            ZStack {
+                Color.black.opacity(0.96).ignoresSafeArea()
 
-            HStack(spacing: 10) {
-                Button {
-                    moveSelection(in: document, by: -1)
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .frame(width: 32, height: 32)
+                if !isPresenterBlackout, let page = selectedPage {
+                    PresentedPageCanvas(
+                        documentID: documentID,
+                        page: page,
+                        store: store,
+                        sourcePDF: sourcePDF
+                    )
+                    .padding(36)
+                    .transition(.opacity.combined(with: .scale(scale: 0.995)))
                 }
-                .disabled((selectedPageIndex(in: document) ?? 0) == 0)
-                .accessibilityLabel("Previous presentation page")
 
-                Text("\((selectedPageIndex(in: document) ?? 0) + 1) / \(max(document.pages.count, 1))")
-                    .font(.system(size: 12, weight: .medium, design: .rounded).monospacedDigit())
-                    .foregroundStyle(EditorPalette.secondaryInk)
-
-                Button {
-                    moveSelection(in: document, by: 1)
-                } label: {
-                    Image(systemName: "chevron.right")
-                        .frame(width: 32, height: 32)
-                }
-                .disabled((selectedPageIndex(in: document) ?? 0) >= document.pages.count - 1)
-                .accessibilityLabel("Next presentation page")
-
-                Rectangle().fill(EditorPalette.border).frame(width: 1, height: 18)
-
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        isPresentationMode = false
+                if isPresenterBlackout {
+                    VStack(spacing: 8) {
+                        Image(systemName: "moon.fill")
+                            .font(.system(size: 26, weight: .medium))
+                        Text("Screen hidden")
+                            .font(.system(size: 14, weight: .medium))
                     }
-                } label: {
-                    Label("Exit", systemImage: "xmark")
-                        .labelStyle(.iconOnly)
-                        .frame(width: 32, height: 32)
+                    .foregroundStyle(.white.opacity(0.55))
                 }
-                .accessibilityLabel("Exit presentation")
+
+                if isLaserPointerEnabled, let presenterLaserLocation {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 16, height: 16)
+                        .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 2))
+                        .shadow(color: .red.opacity(0.65), radius: 12)
+                        .position(presenterLaserLocation)
+                        .allowsHitTesting(false)
+                }
+
+                if isPresenterControlsVisible {
+                    VStack {
+                        HStack(spacing: 8) {
+                            Button {
+                                moveSelection(in: document, by: -1)
+                                presenterLaserLocation = nil
+                            } label: {
+                                Image(systemName: "chevron.left")
+                                    .frame(width: 32, height: 32)
+                            }
+                            .disabled((selectedPageIndex(in: document) ?? 0) == 0)
+                            .accessibilityLabel("Previous presentation page")
+
+                            Text("\((selectedPageIndex(in: document) ?? 0) + 1) / \(max(document.pages.count, 1))")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
+                                .foregroundStyle(.white.opacity(0.84))
+                                .frame(minWidth: 48)
+
+                            Button {
+                                moveSelection(in: document, by: 1)
+                                presenterLaserLocation = nil
+                            } label: {
+                                Image(systemName: "chevron.right")
+                                    .frame(width: 32, height: 32)
+                            }
+                            .disabled((selectedPageIndex(in: document) ?? 0) >= document.pages.count - 1)
+                            .accessibilityLabel("Next presentation page")
+
+                            Rectangle().fill(Color.white.opacity(0.18)).frame(width: 1, height: 18)
+
+                            Button {
+                                isLaserPointerEnabled.toggle()
+                                if !isLaserPointerEnabled { presenterLaserLocation = nil }
+                            } label: {
+                                Image(systemName: isLaserPointerEnabled ? "scope" : "hand.point.up.left.fill")
+                                    .frame(width: 32, height: 32)
+                            }
+                            .foregroundStyle(isLaserPointerEnabled ? Color.red : Color.white)
+                            .accessibilityLabel(isLaserPointerEnabled ? "Turn off laser pointer" : "Turn on laser pointer")
+
+                            Button {
+                                isPresenterBlackout.toggle()
+                                presenterLaserLocation = nil
+                            } label: {
+                                Image(systemName: isPresenterBlackout ? "eye" : "moon")
+                                    .frame(width: 32, height: 32)
+                            }
+                            .accessibilityLabel(isPresenterBlackout ? "Show presentation page" : "Hide presentation page")
+
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    isPresentationMode = false
+                                    isLaserPointerEnabled = false
+                                    presenterLaserLocation = nil
+                                    isPresenterBlackout = false
+                                }
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .frame(width: 32, height: 32)
+                            }
+                            .accessibilityLabel("Exit presentation")
+                        }
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white)
+                        .buttonStyle(PresenterButtonStyle())
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.7))
+                        .padding(18)
+
+                        Spacer()
+
+                        Text(isLaserPointerEnabled ? "Drag anywhere to point" : "Swipe left or right for pages · Tap to hide controls")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Color.black.opacity(0.42), in: Capsule())
+                            .padding(.bottom, 18)
+                    }
+                    .transition(.opacity)
+                }
             }
-            .font(.system(size: 13, weight: .medium))
-            .buttonStyle(EditorToolbarButtonStyle())
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().stroke(EditorPalette.border.opacity(0.8), lineWidth: 0.7))
-            .padding(18)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard !isLaserPointerEnabled else { return }
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isPresenterControlsVisible.toggle()
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 3, coordinateSpace: .local)
+                    .onChanged { value in
+                        guard isLaserPointerEnabled else { return }
+                        presenterLaserLocation = CGPoint(
+                            x: min(max(value.location.x, 8), proxy.size.width - 8),
+                            y: min(max(value.location.y, 8), proxy.size.height - 8)
+                        )
+                    }
+                    .onEnded { value in
+                        if isLaserPointerEnabled {
+                            presenterLaserLocation = nil
+                            return
+                        }
+                        guard abs(value.translation.width) > 55,
+                              abs(value.translation.width) > abs(value.translation.height) else { return }
+                        moveSelection(in: document, by: value.translation.width < 0 ? 1 : -1)
+                    }
+            )
         }
-        .background(EditorPalette.workspace.ignoresSafeArea())
+        .background(Color.black.ignoresSafeArea())
         .ignoresSafeArea()
     }
 
@@ -271,6 +372,22 @@ struct DocumentEditorView: View {
             }
             .buttonStyle(NotionIconButtonStyle())
             .accessibilityLabel("Add page")
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isPresenterControlsVisible = true
+                    isLaserPointerEnabled = false
+                    presenterLaserLocation = nil
+                    isPresenterBlackout = false
+                    isPresentationMode = true
+                }
+            } label: {
+                Image(systemName: "play.rectangle")
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(NotionIconButtonStyle())
+            .accessibilityLabel("Present document")
 
             Menu {
                 Button {
@@ -543,13 +660,13 @@ struct DocumentEditorView: View {
                         }
                     }
                     Section("Shapes") {
-                        Button { canvasController.insertShape(.line, color: inkUIColor, width: inkWidth) } label: {
+                        Button { canvasController.insertShape(.line, color: inkUIColor, width: inkWidth, canvasSize: selectedPage?.canvasSize ?? CGSize(width: 612, height: 792)) } label: {
                             Label("Straight line", systemImage: "line.diagonal")
                         }
-                        Button { canvasController.insertShape(.rectangle, color: inkUIColor, width: inkWidth) } label: {
+                        Button { canvasController.insertShape(.rectangle, color: inkUIColor, width: inkWidth, canvasSize: selectedPage?.canvasSize ?? CGSize(width: 612, height: 792)) } label: {
                             Label("Rectangle", systemImage: "rectangle")
                         }
-                        Button { canvasController.insertShape(.ellipse, color: inkUIColor, width: inkWidth) } label: {
+                        Button { canvasController.insertShape(.ellipse, color: inkUIColor, width: inkWidth, canvasSize: selectedPage?.canvasSize ?? CGSize(width: 612, height: 792)) } label: {
                             Label("Ellipse", systemImage: "circle")
                         }
                     }
@@ -726,10 +843,10 @@ struct DocumentEditorView: View {
                     toolbarDivider
                     Menu {
                         if page.sourcePageIndex == nil {
-                            Section("Paper") {
+                            Section("Paper design") {
                                 ForEach(NotyPageTemplate.allCases, id: \.self) { template in
                                     Button {
-                                        store.updatePageTemplate(documentID: documentID, pageID: page.id, template: template)
+                                        store.updatePageFormat(documentID: documentID, pageID: page.id, template: template)
                                     } label: {
                                         if page.template == template {
                                             Label(template.editorLabel, systemImage: "checkmark")
@@ -740,9 +857,50 @@ struct DocumentEditorView: View {
                                 }
                             }
                         }
+                        Section("Paper color") {
+                            ForEach(paperColorPresets, id: \.hex) { preset in
+                                Button {
+                                    store.updatePageFormat(documentID: documentID, pageID: page.id, paperColorHex: preset.hex)
+                                } label: {
+                                    Label(preset.name, systemImage: page.paperColorHex.uppercased() == preset.hex ? "checkmark.circle.fill" : "circle.fill")
+                                        .tint(Color(hex: preset.hex))
+                                }
+                            }
+                            ColorPicker("Custom color", selection: paperColorBinding(for: page), supportsOpacity: false)
+                        }
+                        Section("Paper size") {
+                            ForEach(NotyPageSizePreset.allCases, id: \.self) { size in
+                                Button {
+                                    store.updatePageFormat(documentID: documentID, pageID: page.id, sizePreset: size)
+                                } label: {
+                                    if page.sizePreset == size {
+                                        Label(size.editorLabel, systemImage: "checkmark")
+                                    } else {
+                                        Label(size.editorLabel, systemImage: size.symbolName)
+                                    }
+                                }
+                            }
+                        }
+                        Section("Orientation") {
+                            ForEach(NotyPageOrientation.allCases, id: \.self) { orientation in
+                                Button {
+                                    store.updatePageFormat(documentID: documentID, pageID: page.id, orientation: orientation)
+                                } label: {
+                                    if page.orientation == orientation {
+                                        Label(orientation.editorLabel, systemImage: "checkmark")
+                                    } else {
+                                        Label(orientation.editorLabel, systemImage: orientation.symbolName)
+                                    }
+                                }
+                            }
+                        }
                         Section("Page") {
                             Button {
                                 withAnimation(.easeInOut(duration: 0.18)) {
+                                    isPresenterControlsVisible = true
+                                    isLaserPointerEnabled = false
+                                    presenterLaserLocation = nil
+                                    isPresenterBlackout = false
                                     isPresentationMode = true
                                 }
                             } label: {
@@ -831,6 +989,30 @@ struct DocumentEditorView: View {
         }
     }
 
+    private var paperColorPresets: [(name: String, hex: String)] {
+        [
+            ("White", "FFFFFF"),
+            ("Ivory", "FFFDF5"),
+            ("Cream", "FFF7E0"),
+            ("Soft yellow", "FFF3B0"),
+            ("Soft blue", "EAF4FF"),
+            ("Soft green", "ECF7EE"),
+            ("Soft pink", "FCECEF"),
+            ("Light gray", "F1F1EF"),
+            ("Charcoal", "292927")
+        ]
+    }
+
+    private func paperColorBinding(for page: NotyPage) -> Binding<Color> {
+        Binding(
+            get: { Color(hex: page.paperColorHex) },
+            set: { color in
+                guard let hex = color.hexString else { return }
+                store.updatePageFormat(documentID: documentID, pageID: page.id, paperColorHex: hex)
+            }
+        )
+    }
+
     private func saveCurrentInkColorPreset() {
         let preset = inkColorHex.uppercased()
         guard !customInkColors.contains(preset) else { return }
@@ -841,10 +1023,12 @@ struct DocumentEditorView: View {
     private func canvasArea(_ document: NotyDocument, sourcePDF: PDFDocument?) -> some View {
         if let page = selectedPage {
             GeometryReader { proxy in
+                let canvasSize = page.canvasSize
                 let availableWidth = max(proxy.size.width - 48, 100)
                 let availableHeight = max(proxy.size.height - 40, 100)
-                let baseWidth = min(availableWidth, availableHeight * EditorCanvas.width / EditorCanvas.height, 760)
-                let baseHeight = baseWidth * EditorCanvas.height / EditorCanvas.width
+                let aspect = canvasSize.width / canvasSize.height
+                let baseWidth = min(availableWidth, availableHeight * aspect, 880)
+                let baseHeight = baseWidth / aspect
                 let pageWidth = baseWidth * zoomScale
                 let pageHeight = baseHeight * zoomScale
 
@@ -1002,12 +1186,13 @@ struct DocumentEditorView: View {
             return
         }
         let lines = recognizedText.components(separatedBy: .newlines).count
+        let canvasSize = page.canvasSize
         let box = NotyTextBox(
             text: recognizedText,
             x: 36,
             y: 36,
-            width: 540,
-            height: min(420, max(100, Double(lines) * 28 + 24)),
+            width: max(120, min(540, Double(canvasSize.width) - 72)),
+            height: max(80, min(420, min(Double(canvasSize.height) - 72, Double(lines) * 28 + 24))),
             fontSize: 18
         )
         store.updateTextBoxes(documentID: documentID, pageID: page.id, textBoxes: page.textBoxes + [box])
@@ -1033,6 +1218,96 @@ struct DocumentEditorView: View {
     }
 }
 
+private struct PresentedPageCanvas: View {
+    let documentID: UUID
+    let page: NotyPage
+    let store: NotyStore
+    let sourcePDF: PDFDocument?
+
+    var body: some View {
+        GeometryReader { proxy in
+            let canvasSize = page.canvasSize
+            let scale = min(proxy.size.width / canvasSize.width, proxy.size.height / canvasSize.height)
+            let displayWidth = canvasSize.width * scale
+            let displayHeight = canvasSize.height * scale
+
+            ZStack(alignment: .topLeading) {
+                PageBackground(
+                    documentID: documentID,
+                    page: page,
+                    sourcePDF: sourcePDF,
+                    imageSize: CGSize(width: canvasSize.width * 3, height: canvasSize.height * 3)
+                )
+                .frame(width: canvasSize.width, height: canvasSize.height)
+
+                ForEach(page.images) { pageImage in
+                    if let image = store.pageImage(documentID: documentID, pageID: page.id, image: pageImage) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: CGFloat(pageImage.width), height: CGFloat(pageImage.height))
+                            .clipped()
+                            .rotationEffect(.degrees(pageImage.rotationDegrees))
+                            .position(
+                                x: CGFloat(pageImage.x + pageImage.width / 2),
+                                y: CGFloat(pageImage.y + pageImage.height / 2)
+                            )
+                    }
+                }
+
+                let drawing = store.drawing(documentID: documentID, pageID: page.id)
+                if !drawing.strokes.isEmpty {
+                    Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: canvasSize), scale: 2))
+                        .resizable()
+                        .frame(width: canvasSize.width, height: canvasSize.height)
+                }
+
+                ForEach(page.textBoxes) { box in
+                    PresentedTextBox(box: box)
+                }
+            }
+            .frame(width: canvasSize.width, height: canvasSize.height)
+            .scaleEffect(scale, anchor: .topLeading)
+            .frame(width: displayWidth, height: displayHeight, alignment: .topLeading)
+            .clipShape(RoundedRectangle(cornerRadius: 3))
+            .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.16), lineWidth: 0.7))
+            .shadow(color: Color.black.opacity(0.45), radius: 22, x: 0, y: 8)
+            .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+        }
+    }
+}
+
+private struct PresentedTextBox: View {
+    let box: NotyTextBox
+
+    private var styledFont: Font {
+        var font = box.fontName.map { Font.custom($0, size: CGFloat(box.fontSize)) }
+            ?? Font.system(size: CGFloat(box.fontSize))
+        if box.isBold { font = font.weight(.bold) }
+        if box.isItalic { font = font.italic() }
+        return font
+    }
+
+    var body: some View {
+        Text(box.text.isEmpty ? " " : box.text)
+            .font(styledFont)
+            .underline(box.isUnderlined)
+            .foregroundStyle(Color(hex: box.colorHex))
+            .multilineTextAlignment(box.alignment.textAlignment)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 8)
+            .frame(
+                width: CGFloat(box.width),
+                height: CGFloat(box.height),
+                alignment: box.alignment.frameAlignment
+            )
+            .position(
+                x: CGFloat(box.x + box.width / 2),
+                y: CGFloat(box.y + box.height / 2)
+            )
+    }
+}
+
 private struct EditablePageCanvas: View {
     let documentID: UUID
     let page: NotyPage
@@ -1050,11 +1325,17 @@ private struct EditablePageCanvas: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let scale = proxy.size.width / EditorCanvas.width
+            let canvasSize = page.canvasSize
+            let scale = proxy.size.width / canvasSize.width
             ZStack(alignment: .topLeading) {
                 ZStack(alignment: .topLeading) {
-                    PageBackground(documentID: documentID, page: page, sourcePDF: sourcePDF, imageSize: CGSize(width: 1836, height: 2376))
-                        .frame(width: EditorCanvas.width, height: EditorCanvas.height)
+                    PageBackground(
+                        documentID: documentID,
+                        page: page,
+                        sourcePDF: sourcePDF,
+                        imageSize: CGSize(width: canvasSize.width * 3, height: canvasSize.height * 3)
+                    )
+                    .frame(width: canvasSize.width, height: canvasSize.height)
 
                     ForEach(page.images) { pageImage in
                         if let image = store.pageImage(documentID: documentID, pageID: page.id, image: pageImage) {
@@ -1074,12 +1355,13 @@ private struct EditablePageCanvas: View {
 
                     PencilCanvasView(
                         drawing: store.drawing(documentID: documentID, pageID: page.id),
+                        canvasSize: canvasSize,
                         controller: canvasController,
                         inkSettings: inkSettings,
                         isToolPickerVisible: isToolPickerVisible,
                         onDrawingChanged: onDrawingChanged
                     )
-                    .frame(width: EditorCanvas.width, height: EditorCanvas.height)
+                    .frame(width: canvasSize.width, height: canvasSize.height)
                     .id(page.id)
 
                     ForEach(page.textBoxes) { box in
@@ -1102,15 +1384,15 @@ private struct EditablePageCanvas: View {
                             onMove: { origin in
                                 var updated = page.textBoxes
                                 guard let index = updated.firstIndex(where: { $0.id == box.id }) else { return }
-                                updated[index].x = Double(min(max(origin.x, 0), EditorCanvas.width - CGFloat(updated[index].width)))
-                                updated[index].y = Double(min(max(origin.y, 0), EditorCanvas.height - CGFloat(updated[index].height)))
+                                updated[index].x = Double(min(max(origin.x, 0), canvasSize.width - CGFloat(updated[index].width)))
+                                updated[index].y = Double(min(max(origin.y, 0), canvasSize.height - CGFloat(updated[index].height)))
                                 onTextBoxesChanged(updated)
                             },
                             onResize: { size in
                                 var updated = page.textBoxes
                                 guard let index = updated.firstIndex(where: { $0.id == box.id }) else { return }
-                                updated[index].width = Double(min(max(size.width, 80), EditorCanvas.width - CGFloat(updated[index].x)))
-                                updated[index].height = Double(min(max(size.height, 42), EditorCanvas.height - CGFloat(updated[index].y)))
+                                updated[index].width = Double(min(max(size.width, 80), canvasSize.width - CGFloat(updated[index].x)))
+                                updated[index].height = Double(min(max(size.height, 42), canvasSize.height - CGFloat(updated[index].y)))
                                 onTextBoxesChanged(updated)
                             }
                         )
@@ -1123,16 +1405,16 @@ private struct EditablePageCanvas: View {
                             onMove: { origin in
                                 var updated = page.images
                                 guard let index = updated.firstIndex(where: { $0.id == selectedImage.id }) else { return }
-                                updated[index].x = Double(min(max(origin.x, 0), EditorCanvas.width - CGFloat(updated[index].width)))
-                                updated[index].y = Double(min(max(origin.y, 0), EditorCanvas.height - CGFloat(updated[index].height)))
+                                updated[index].x = Double(min(max(origin.x, 0), canvasSize.width - CGFloat(updated[index].width)))
+                                updated[index].y = Double(min(max(origin.y, 0), canvasSize.height - CGFloat(updated[index].height)))
                                 onImagesChanged(updated)
                             },
                             onResize: { size in
                                 var updated = page.images
                                 guard let index = updated.firstIndex(where: { $0.id == selectedImage.id }) else { return }
                                 let aspect = max(CGFloat(updated[index].width / max(updated[index].height, 1)), 0.05)
-                                let width = min(max(size.width, 60), EditorCanvas.width - CGFloat(updated[index].x))
-                                let height = min(max(width / aspect, 60), EditorCanvas.height - CGFloat(updated[index].y))
+                                let width = min(max(size.width, 60), canvasSize.width - CGFloat(updated[index].x))
+                                let height = min(max(width / aspect, 60), canvasSize.height - CGFloat(updated[index].y))
                                 updated[index].width = Double(width)
                                 updated[index].height = Double(height)
                                 onImagesChanged(updated)
@@ -1140,18 +1422,19 @@ private struct EditablePageCanvas: View {
                         )
                     }
                 }
-                .frame(width: EditorCanvas.width, height: EditorCanvas.height)
+                .frame(width: canvasSize.width, height: canvasSize.height)
                 .scaleEffect(scale, anchor: .topLeading)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .background(EditorPalette.paper)
         }
-        .aspectRatio(EditorCanvas.width / EditorCanvas.height, contentMode: .fit)
+        .aspectRatio(page.canvasSize.width / page.canvasSize.height, contentMode: .fit)
     }
 }
 
 private struct PencilCanvasView: UIViewRepresentable {
     let drawing: PKDrawing
+    let canvasSize: CGSize
     let controller: InkCanvasController
     let inkSettings: EditorInkSettings
     let isToolPickerVisible: Bool
@@ -1169,7 +1452,7 @@ private struct PencilCanvasView: UIViewRepresentable {
         canvas.isScrollEnabled = false
         canvas.minimumZoomScale = 1
         canvas.maximumZoomScale = 1
-        canvas.contentSize = CGSize(width: EditorCanvas.width, height: EditorCanvas.height)
+        canvas.contentSize = canvasSize
         canvas.tool = inkSettings.makeTool
         canvas.delegate = context.coordinator
         context.coordinator.toolPicker.addObserver(canvas)
@@ -1181,6 +1464,7 @@ private struct PencilCanvasView: UIViewRepresentable {
     }
 
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
+        canvas.contentSize = canvasSize
         context.coordinator.onDrawingChanged = onDrawingChanged
         context.coordinator.controller = controller
         controller.attach(canvas, onDrawingChanged: onDrawingChanged)
@@ -1270,9 +1554,9 @@ private final class InkCanvasController: ObservableObject {
         refreshUndoState()
     }
 
-    func insertShape(_ shape: EditorShape, color: UIColor, width: Double) {
+    func insertShape(_ shape: EditorShape, color: UIColor, width: Double, canvasSize: CGSize) {
         guard let canvas = canvasView else { return }
-        let points = shape.controlPoints(in: CGSize(width: EditorCanvas.width, height: EditorCanvas.height))
+        let points = shape.controlPoints(in: canvasSize)
         let strokePoints = points.enumerated().map { index, point in
             PKStrokePoint(
                 location: point,
@@ -1382,6 +1666,15 @@ private extension UIColor {
         guard getRed(&red, green: &green, blue: &blue, alpha: nil) else { return nil }
         return String(format: "%02X%02X%02X", Int(red * 255), Int(green * 255), Int(blue * 255))
     }
+
+    var isDarkBackground: Bool {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        guard getRed(&red, green: &green, blue: &blue, alpha: nil) else { return false }
+        let luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        return luminance < 0.48
+    }
 }
 
 private extension Color {
@@ -1402,16 +1695,29 @@ private enum EditorShape {
     func controlPoints(in size: CGSize) -> [CGPoint] {
         switch self {
         case .line:
-            return [CGPoint(x: 180, y: size.height / 2), CGPoint(x: size.width - 180, y: size.height / 2)]
-        case .rectangle:
             return [
-                CGPoint(x: 186, y: 290), CGPoint(x: size.width - 186, y: 290),
-                CGPoint(x: size.width - 186, y: 500), CGPoint(x: 186, y: 500), CGPoint(x: 186, y: 290)
+                CGPoint(x: size.width * 0.2, y: size.height * 0.5),
+                CGPoint(x: size.width * 0.8, y: size.height * 0.5)
+            ]
+        case .rectangle:
+            let left = size.width * 0.25
+            let right = size.width * 0.75
+            let top = size.height * 0.35
+            let bottom = size.height * 0.65
+            return [
+                CGPoint(x: left, y: top), CGPoint(x: right, y: top),
+                CGPoint(x: right, y: bottom), CGPoint(x: left, y: bottom),
+                CGPoint(x: left, y: top)
             ]
         case .ellipse:
+            let radiusX = size.width * 0.23
+            let radiusY = size.height * 0.14
             return (0...48).map { step in
                 let angle = CGFloat(step) / 48 * .pi * 2
-                return CGPoint(x: size.width / 2 + cos(angle) * 140, y: size.height / 2 + sin(angle) * 90)
+                return CGPoint(
+                    x: size.width / 2 + cos(angle) * radiusX,
+                    y: size.height / 2 + sin(angle) * radiusY
+                )
             }
         }
     }
@@ -1425,10 +1731,11 @@ private struct PageBackground: View {
 
     var body: some View {
         ZStack {
-            EditorPalette.paper
-            PageTemplateView(template: page.template)
+            Color(hex: page.paperColorHex)
             if let sourcePageIndex = page.sourcePageIndex, let sourcePDF {
                 PDFPageBackground(documentID: documentID, pageIndex: sourcePageIndex, sourcePDF: sourcePDF, imageSize: imageSize)
+            } else {
+                PageTemplateView(template: page.template, paperColorHex: page.paperColorHex)
             }
         }
         .clipped()
@@ -1464,43 +1771,68 @@ private struct PDFPageBackground: View {
 
 private struct PageTemplateView: View {
     let template: NotyPageTemplate
+    let paperColorHex: String
+
+    private var line: Color {
+        UIColor(hex: paperColorHex).isDarkBackground
+            ? Color.white.opacity(0.24)
+            : NotionTheme.templateLine
+    }
 
     var body: some View {
         Canvas { context, size in
-            let line = NotionTheme.templateLine
             switch template {
             case .blank:
                 break
-            case .ruled:
-                stride(from: 34.0, through: size.height, by: 28.0).forEach { y in
+            case .ruled, .narrowRuled:
+                let spacing = template == .narrowRuled ? 20.0 : 28.0
+                stride(from: 34.0, through: size.height, by: spacing).forEach { y in
                     var path = Path()
                     path.move(to: CGPoint(x: 28, y: y))
                     path.addLine(to: CGPoint(x: size.width - 24, y: y))
                     context.stroke(path, with: .color(line), lineWidth: 0.7)
                 }
                 var margin = Path()
-                margin.move(to: CGPoint(x: 56, y: 0))
-                margin.addLine(to: CGPoint(x: 56, y: size.height))
+                margin.move(to: CGPoint(x: min(56, size.width * 0.12), y: 0))
+                margin.addLine(to: CGPoint(x: min(56, size.width * 0.12), y: size.height))
                 context.stroke(margin, with: .color(line.opacity(0.7)), lineWidth: 0.7)
-            case .grid:
-                stride(from: 18.0, through: size.width, by: 24.0).forEach { x in
+            case .grid, .smallGrid:
+                let spacing = template == .smallGrid ? 16.0 : 24.0
+                stride(from: spacing, through: size.width, by: spacing).forEach { x in
                     var path = Path()
                     path.move(to: CGPoint(x: x, y: 0))
                     path.addLine(to: CGPoint(x: x, y: size.height))
-                    context.stroke(path, with: .color(line.opacity(0.7)), lineWidth: 0.55)
+                    context.stroke(path, with: .color(line.opacity(0.8)), lineWidth: 0.55)
                 }
-                stride(from: 18.0, through: size.height, by: 24.0).forEach { y in
+                stride(from: spacing, through: size.height, by: spacing).forEach { y in
                     var path = Path()
                     path.move(to: CGPoint(x: 0, y: y))
                     path.addLine(to: CGPoint(x: size.width, y: y))
-                    context.stroke(path, with: .color(line.opacity(0.7)), lineWidth: 0.55)
+                    context.stroke(path, with: .color(line.opacity(0.8)), lineWidth: 0.55)
                 }
             case .dots:
                 for x in stride(from: 18.0, through: size.width, by: 24.0) {
                     for y in stride(from: 18.0, through: size.height, by: 24.0) {
-                        let rect = CGRect(x: x - 0.8, y: y - 0.8, width: 1.6, height: 1.6)
+                        let rect = CGRect(x: x - 0.9, y: y - 0.9, width: 1.8, height: 1.8)
                         context.fill(Path(ellipseIn: rect), with: .color(line))
                     }
+                }
+            case .cornell:
+                let cueX = max(90, size.width * 0.3)
+                let summaryY = max(120, size.height - 110)
+                var divider = Path()
+                divider.move(to: CGPoint(x: cueX, y: 54))
+                divider.addLine(to: CGPoint(x: cueX, y: summaryY))
+                divider.move(to: CGPoint(x: 24, y: 54))
+                divider.addLine(to: CGPoint(x: size.width - 24, y: 54))
+                divider.move(to: CGPoint(x: 24, y: summaryY))
+                divider.addLine(to: CGPoint(x: size.width - 24, y: summaryY))
+                context.stroke(divider, with: .color(line.opacity(0.9)), lineWidth: 0.8)
+                stride(from: 82.0, through: summaryY - 12, by: 28.0).forEach { y in
+                    var path = Path()
+                    path.move(to: CGPoint(x: cueX + 12, y: y))
+                    path.addLine(to: CGPoint(x: size.width - 24, y: y))
+                    context.stroke(path, with: .color(line.opacity(0.75)), lineWidth: 0.55)
                 }
             }
         }
@@ -1758,7 +2090,7 @@ private struct PageThumbnail: View {
                 ZStack {
                     PageBackground(documentID: documentID, page: page, sourcePDF: sourcePDF, imageSize: CGSize(width: 360, height: 466))
                     GeometryReader { proxy in
-                        let scale = proxy.size.width / EditorCanvas.width
+                        let scale = proxy.size.width / page.canvasSize.width
                         ForEach(page.images) { pageImage in
                             if let image = store.pageImage(documentID: documentID, pageID: page.id, image: pageImage) {
                                 Image(uiImage: image)
@@ -1781,7 +2113,7 @@ private struct PageThumbnail: View {
 
                     let drawing = store.drawing(documentID: documentID, pageID: page.id)
                     if !drawing.strokes.isEmpty {
-                        Image(uiImage: drawing.image(from: CGRect(x: 0, y: 0, width: EditorCanvas.width, height: EditorCanvas.height), scale: 0.35))
+                        Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: page.canvasSize), scale: 0.35))
                             .resizable()
                             .scaledToFill()
                     }
@@ -1793,7 +2125,7 @@ private struct PageThumbnail: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                     }
                 }
-                .aspectRatio(EditorCanvas.width / EditorCanvas.height, contentMode: .fit)
+                .aspectRatio(page.canvasSize.width / page.canvasSize.height, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(isSelected ? EditorPalette.selection : EditorPalette.border, lineWidth: isSelected ? 1.2 : 0.8))
                 .shadow(color: Color.black.opacity(isSelected ? 0.06 : 0.02), radius: 2, x: 0, y: 1)
@@ -1808,11 +2140,6 @@ private struct PageThumbnail: View {
     }
 }
 
-private enum EditorCanvas {
-    static let width: CGFloat = 612
-    static let height: CGFloat = 792
-}
-
 private enum EditorPalette {
     static let workspace = NotionTheme.workspace
     static let rail = NotionTheme.sidebar
@@ -1824,6 +2151,18 @@ private enum EditorPalette {
     static let control = Color.clear
     static let accent = NotionTheme.accent
     static let selection = NotionTheme.inkSecondary.opacity(0.72)
+}
+
+private struct PresenterButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(configuration.isPressed ? Color.white.opacity(0.55) : Color.white)
+            .background(
+                configuration.isPressed ? Color.white.opacity(0.12) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .contentShape(Rectangle())
+    }
 }
 
 private struct EditorToolbarButtonStyle: ButtonStyle {
@@ -1870,17 +2209,60 @@ private extension NotyPageTemplate {
         switch self {
         case .blank: "Blank"
         case .ruled: "Ruled"
+        case .narrowRuled: "Narrow ruled"
         case .grid: "Grid"
-        case .dots: "Dots"
+        case .smallGrid: "Small grid"
+        case .dots: "Dotted"
+        case .cornell: "Cornell"
         }
     }
 
     var symbolName: String {
         switch self {
         case .blank: "square"
-        case .ruled: "line.3.horizontal"
-        case .grid: "grid"
+        case .ruled, .narrowRuled: "line.3.horizontal"
+        case .grid, .smallGrid: "grid"
         case .dots: "circle.grid.3x3"
+        case .cornell: "rectangle.split.2x1"
+        }
+    }
+}
+
+private extension NotyPageSizePreset {
+    var editorLabel: String {
+        switch self {
+        case .a4: "A4"
+        case .a5: "A5"
+        case .letter: "US Letter"
+        case .legal: "US Legal"
+        case .square: "Square"
+        case .screen4x3: "Screen 4:3"
+        case .widescreen16x9: "Widescreen 16:9"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .square: "square"
+        case .screen4x3: "rectangle"
+        case .widescreen16x9: "rectangle.wide"
+        default: "doc"
+        }
+    }
+}
+
+private extension NotyPageOrientation {
+    var editorLabel: String {
+        switch self {
+        case .portrait: "Portrait"
+        case .landscape: "Landscape"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .portrait: "rectangle.portrait"
+        case .landscape: "rectangle"
         }
     }
 }

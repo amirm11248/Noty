@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 enum NotyDocumentKind: String, Codable, CaseIterable {
@@ -9,8 +10,38 @@ enum NotyDocumentKind: String, Codable, CaseIterable {
 enum NotyPageTemplate: String, Codable, CaseIterable {
     case blank
     case ruled
+    case narrowRuled
     case grid
+    case smallGrid
     case dots
+    case cornell
+}
+
+enum NotyPageSizePreset: String, Codable, CaseIterable {
+    case a4
+    case a5
+    case letter
+    case legal
+    case square
+    case screen4x3
+    case widescreen16x9
+
+    var portraitSize: CGSize {
+        switch self {
+        case .a4: CGSize(width: 595, height: 842)
+        case .a5: CGSize(width: 420, height: 595)
+        case .letter: CGSize(width: 612, height: 792)
+        case .legal: CGSize(width: 612, height: 1008)
+        case .square: CGSize(width: 720, height: 720)
+        case .screen4x3: CGSize(width: 768, height: 1024)
+        case .widescreen16x9: CGSize(width: 720, height: 1280)
+        }
+    }
+}
+
+enum NotyPageOrientation: String, Codable, CaseIterable {
+    case portrait
+    case landscape
 }
 
 enum NotyTextAlignment: String, Codable, CaseIterable {
@@ -136,6 +167,9 @@ struct NotyPage: Identifiable, Codable, Hashable {
     var images: [NotyPageImage]
     var isBookmarked: Bool
     var bookmarkTitle: String?
+    var paperColorHex: String
+    var sizePreset: NotyPageSizePreset
+    var orientation: NotyPageOrientation
 
     init(
         id: UUID = UUID(),
@@ -144,7 +178,10 @@ struct NotyPage: Identifiable, Codable, Hashable {
         textBoxes: [NotyTextBox] = [],
         images: [NotyPageImage] = [],
         isBookmarked: Bool = false,
-        bookmarkTitle: String? = nil
+        bookmarkTitle: String? = nil,
+        paperColorHex: String = "FFFFFF",
+        sizePreset: NotyPageSizePreset = .letter,
+        orientation: NotyPageOrientation = .portrait
     ) {
         self.id = id
         self.template = template
@@ -153,10 +190,22 @@ struct NotyPage: Identifiable, Codable, Hashable {
         self.images = images
         self.isBookmarked = isBookmarked
         self.bookmarkTitle = bookmarkTitle
+        self.paperColorHex = paperColorHex
+        self.sizePreset = sizePreset
+        self.orientation = orientation
+    }
+
+    var canvasSize: CGSize {
+        let base = sizePreset.portraitSize
+        if orientation == .landscape && base.width != base.height {
+            return CGSize(width: base.height, height: base.width)
+        }
+        return base
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, template, sourcePageIndex, textBoxes, images, isBookmarked, bookmarkTitle
+        case paperColorHex, sizePreset, orientation
     }
 
     init(from decoder: Decoder) throws {
@@ -168,6 +217,9 @@ struct NotyPage: Identifiable, Codable, Hashable {
         images = try container.decodeIfPresent([NotyPageImage].self, forKey: .images) ?? []
         isBookmarked = try container.decodeIfPresent(Bool.self, forKey: .isBookmarked) ?? false
         bookmarkTitle = try container.decodeIfPresent(String.self, forKey: .bookmarkTitle)
+        paperColorHex = try container.decodeIfPresent(String.self, forKey: .paperColorHex) ?? "FFFFFF"
+        sizePreset = try container.decodeIfPresent(NotyPageSizePreset.self, forKey: .sizePreset) ?? .letter
+        orientation = try container.decodeIfPresent(NotyPageOrientation.self, forKey: .orientation) ?? .portrait
     }
 }
 

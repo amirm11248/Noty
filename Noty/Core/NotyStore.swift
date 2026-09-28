@@ -298,10 +298,18 @@ final class NotyStore {
             lastOperationMessage = NotyStoreError.documentNotFound.localizedDescription
             return
         }
-        let page = NotyPage(template: template)
+        let page: NotyPage
         if let pageID, let pageIndex = documents[documentIndex].pages.firstIndex(where: { $0.id == pageID }) {
+            let reference = documents[documentIndex].pages[pageIndex]
+            page = NotyPage(
+                template: template,
+                paperColorHex: reference.paperColorHex,
+                sizePreset: reference.sizePreset,
+                orientation: reference.orientation
+            )
             documents[documentIndex].pages.insert(page, at: pageIndex + 1)
         } else {
+            page = NotyPage(template: template)
             documents[documentIndex].pages.append(page)
         }
         touchDocument(at: documentIndex)
@@ -373,7 +381,10 @@ final class NotyStore {
                 return copy
             },
             isBookmarked: false,
-            bookmarkTitle: nil
+            bookmarkTitle: nil,
+            paperColorHex: sourcePage.paperColorHex,
+            sizePreset: sourcePage.sizePreset,
+            orientation: sourcePage.orientation
         )
         let copiedDrawingURL = drawingURL(documentID: documentID, pageID: duplicatedPage.id)
         let copiedHandwritingURL = handwritingTextURL(documentID: documentID, pageID: duplicatedPage.id)
@@ -420,15 +431,77 @@ final class NotyStore {
     }
 
     func updatePageTemplate(documentID: UUID, pageID: UUID, template: NotyPageTemplate) {
-        guard let documentIndex = documents.firstIndex(where: { $0.id == documentID }) else {
-            lastOperationMessage = NotyStoreError.documentNotFound.localizedDescription
-            return
-        }
-        guard let pageIndex = documents[documentIndex].pages.firstIndex(where: { $0.id == pageID }) else {
+        updatePageFormat(documentID: documentID, pageID: pageID, template: template)
+    }
+
+    func updatePageFormat(
+        documentID: UUID,
+        pageID: UUID,
+        template: NotyPageTemplate? = nil,
+        paperColorHex: String? = nil,
+        sizePreset: NotyPageSizePreset? = nil,
+        orientation: NotyPageOrientation? = nil
+    ) {
+        guard let documentIndex = documents.firstIndex(where: { $0.id == documentID }),
+              let pageIndex = documents[documentIndex].pages.firstIndex(where: { $0.id == pageID }) else {
             lastOperationMessage = NotyStoreError.pageNotFound.localizedDescription
             return
         }
-        documents[documentIndex].pages[pageIndex].template = template
+
+        let oldPage = documents[documentIndex].pages[pageIndex]
+        var newPage = oldPage
+        if let template { newPage.template = template }
+        if let paperColorHex { newPage.paperColorHex = Self.normalizedPaperColor(paperColorHex) }
+        if let sizePreset { newPage.sizePreset = sizePreset }
+        if let orientation { newPage.orientation = orientation }
+
+        let oldSize = oldPage.canvasSize
+        let newSize = newPage.canvasSize
+        if oldSize != newSize, oldSize.width > 0, oldSize.height > 0 {
+            let uniformScale = min(newSize.width / oldSize.width, newSize.height / oldSize.height)
+            let offsetX = (newSize.width - oldSize.width * uniformScale) / 2
+            let offsetY = (newSize.height - oldSize.height * uniformScale) / 2
+
+            newPage.textBoxes = oldPage.textBoxes.map { box in
+                var copy = box
+                copy.x = Double(offsetX + CGFloat(box.x) * uniformScale)
+                copy.y = Double(offsetY + CGFloat(box.y) * uniformScale)
+                copy.width = Double(CGFloat(box.width) * uniformScale)
+                copy.height = Double(CGFloat(box.height) * uniformScale)
+                copy.fontSize = max(6, Double(CGFloat(box.fontSize) * uniformScale))
+                return copy
+            }
+            newPage.images = oldPage.images.map { image in
+                var copy = image
+                copy.x = Double(offsetX + CGFloat(image.x) * uniformScale)
+                copy.y = Double(offsetY + CGFloat(image.y) * uniformScale)
+                copy.width = Double(CGFloat(image.width) * uniformScale)
+                copy.height = Double(CGFloat(image.height) * uniformScale)
+                return copy
+            }
+
+            let drawing = self.drawing(documentID: documentID, pageID: pageID)
+            if !drawing.strokes.isEmpty {
+                let transform = CGAffineTransform(
+                    a: uniformScale,
+                    b: 0,
+                    c: 0,
+                    d: uniformScale,
+                    tx: offsetX,
+                    ty: offsetY
+                )
+                do {
+                    let destination = drawingURL(documentID: documentID, pageID: pageID)
+                    try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try drawing.transformed(using: transform).dataRepresentation().write(to: destination, options: .atomic)
+                } catch {
+                    lastOperationMessage = "The paper size could not be changed safely: \(error.localizedDescription)"
+                    return
+                }
+            }
+        }
+
+        documents[documentIndex].pages[pageIndex] = newPage
         touchDocument(at: documentIndex)
         lastOperationMessage = nil
         persistCurrentManifest()
@@ -499,12 +572,13 @@ final class NotyStore {
             height = maxHeight
             width = height * aspect
         }
+        let canvasSize = documents[documentIndex].pages[pageIndex].canvasSize
         let pageImage = NotyPageImage(
             fileName: fileName,
-            x: max(24, (612 - width) / 2),
-            y: max(24, (792 - height) / 2),
-            width: width,
-            height: height
+            x: max(24, (Double(canvasSize.width) - width) / 2),
+            y: max(24, (Double(canvasSize.height) - height) / 2),
+            width: min(width, max(60, Double(canvasSize.width) - 48)),
+            height: min(height, max(60, Double(canvasSize.height) - 48))
         )
 
         documents[documentIndex].pages[pageIndex].images.append(pageImage)
@@ -1254,6 +1328,11 @@ final class NotyStore {
     private func safeFileName(_ proposedName: String) -> String {
         let name = URL(fileURLWithPath: proposedName).lastPathComponent
         return name.isEmpty || name == "." ? "Original file" : name
+    }
+
+    private static func normalizedPaperColor(_ hex: String) -> String {
+        let filtered = hex.uppercased().filter { $0.isHexDigit }
+        return filtered.count == 6 ? filtered : "FFFFFF"
     }
 
     private static func officeFallbackPages(fileName: String, error: Error) -> [NotyPage] {

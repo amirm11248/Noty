@@ -25,13 +25,16 @@ This file tracks the gap between the current native iPad app and the larger Good
 - [x] Pinch/page zoom from 65% to 300%
 - [x] Insert photos as movable/resizable/rotatable page objects
 - [x] Page bookmarks with quick-jump menu
-- [x] Blank, ruled, grid and dotted paper
+- [x] Blank, regular/narrow ruled, regular/small grid, dotted and Cornell paper
+- [x] Per-page paper colors with presets and a custom color picker
+- [x] Per-page A4, A5, US Letter, US Legal, square, 4:3 and 16:9 sizes
+- [x] Per-page portrait / landscape orientation with content-preserving resize
 - [x] Notes and book documents
 - [x] Nested folders, recents, document favorites and sorting
 - [x] Restorable in-app Trash with permanent-delete / empty-trash actions
 - [x] Full annotated PDF export
 - [x] High-resolution current-page PNG export
-- [x] Basic full-screen presentation view
+- [x] Full-screen presenter view with swipe/page controls, laser pointer, hide-screen mode and clean audience chrome
 
 ## Cloud durability
 
@@ -81,13 +84,12 @@ These are not implemented and should not be advertised as finished:
 - [ ] Smart Ink-style handwriting reflow/editing and handwriting spell correction
 - [ ] Notebook covers and custom covers
 - [ ] Cornell, planner, music and user-imported templates
-- [ ] Multiple paper sizes, page colors and per-page orientation
 - [ ] Document outline / table of contents and internal page links (page bookmarks are implemented)
 - [ ] Password-protected notebooks
 - [ ] Semantic PDF text selection/highlight annotations; current highlighter is PencilKit ink
 - [ ] Paragraph/list formatting beyond the implemented font family, bold, italic, underline, color and alignment controls
 - [ ] Stickers, reusable elements, GIFs and GIPHY (image/photo objects are implemented)
-- [ ] Presentation laser pointer and dedicated external-display audience controls
+- [ ] Dedicated second-screen / external-display audience window (the in-app presenter, laser pointer and hide-screen mode are implemented)
 - [ ] Infinite whiteboards
 - [ ] Flowing Notion/Docs-style text documents
 - [ ] Collaboration and shared live editing
