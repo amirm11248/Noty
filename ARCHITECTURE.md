@@ -17,8 +17,9 @@ Core agent provides:
 enum NotyDocumentKind: String, Codable, CaseIterable { case note, pdf, book }
 enum NotyPageTemplate: String, Codable, CaseIterable { case blank, ruled, grid, dots }
 struct NotyFolder: Identifiable, Codable, Hashable { var id: UUID; var name: String; var parentID: UUID? }
-struct NotyTextBox: Identifiable, Codable, Hashable { var id: UUID; var text: String; var x: Double; var y: Double; var width: Double; var height: Double; var fontSize: Double }
-struct NotyPage: Identifiable, Codable, Hashable { var id: UUID; var template: NotyPageTemplate; var sourcePageIndex: Int?; var textBoxes: [NotyTextBox] }
+struct NotyTextBox: Identifiable, Codable, Hashable { var id: UUID; var text: String; var x: Double; var y: Double; var width: Double; var height: Double; var fontSize: Double; var fontName: String?; var isBold: Bool; var isItalic: Bool; var isUnderlined: Bool; var colorHex: String; var alignment: NotyTextAlignment }
+struct NotyPageImage: Identifiable, Codable, Hashable { var id: UUID; var fileName: String; var x: Double; var y: Double; var width: Double; var height: Double; var rotationDegrees: Double }
+struct NotyPage: Identifiable, Codable, Hashable { var id: UUID; var template: NotyPageTemplate; var sourcePageIndex: Int?; var textBoxes: [NotyTextBox]; var images: [NotyPageImage]; var isBookmarked: Bool; var bookmarkTitle: String? }
 struct NotyDocument: Identifiable, Codable, Hashable { var id: UUID; var title: String; var kind: NotyDocumentKind; var folderID: UUID?; var pages: [NotyPage]; var createdAt: Date; var updatedAt: Date }
 @MainActor @Observable final class NotyStore {
   var folders: [NotyFolder]
@@ -36,6 +37,11 @@ struct NotyDocument: Identifiable, Codable, Hashable { var id: UUID; var title: 
   func movePage(documentID: UUID, from: IndexSet, to: Int)
   func deletePage(documentID: UUID, pageID: UUID)
   func updateTextBoxes(documentID: UUID, pageID: UUID, textBoxes: [NotyTextBox])
+  func updatePageBookmark(documentID: UUID, pageID: UUID, isBookmarked: Bool)
+  func addPageImage(data: Data, documentID: UUID, pageID: UUID) throws -> NotyPageImage
+  func updatePageImages(documentID: UUID, pageID: UUID, images: [NotyPageImage])
+  func restoreTrashedDocument(id: UUID)
+  func permanentlyDeleteTrashedDocument(id: UUID)
   func saveDrawing(_ drawing: PKDrawing, documentID: UUID, pageID: UUID)
   func drawing(documentID: UUID, pageID: UUID) -> PKDrawing
   func sourcePDF(documentID: UUID) -> PDFDocument?
@@ -54,6 +60,6 @@ Library agent provides `LibraryView(store: NotyStore, oneDrive: OneDriveService)
 
 ## Functional priorities
 
-1. Reliable local persistence, import PDF/DOCX, folder/book creation, PencilKit writing, page controls, text boxes and export.
+1. Reliable local persistence, import PDF/DOCX, folder/book creation, PencilKit writing, page controls, rich text boxes, photo objects, page bookmarks, restorable Trash and export.
 2. Minimal Notion-inspired visual language: warm white, ink grey, quiet borders, clear typography, simple iconography; comfortable on iPad and Apple Pencil.
 3. Cloud mirrors report real status and errors. iCloud Drive and OneDrive folder access is user selected in Files and persisted using iOS directory bookmarks that resolve back to security-scoped URLs. Foreground edits are mirrored promptly and `com.malik.noty.sync` is registered as a BGProcessingTask fallback for later retry opportunities. DOC/DOCX conversion stays on-device because the user's school blocks Microsoft Graph. Do not claim guaranteed background timing or provider upload timing; iPadOS schedules both.
