@@ -15,11 +15,13 @@ Core agent provides:
 
 ```swift
 enum NotyDocumentKind: String, Codable, CaseIterable { case note, pdf, book }
-enum NotyPageTemplate: String, Codable, CaseIterable { case blank, ruled, grid, dots }
+enum NotyPageTemplate: String, Codable, CaseIterable { case blank, ruled, narrowRuled, grid, smallGrid, dots, cornell }
+enum NotyPageSizePreset: String, Codable, CaseIterable { case a4, a5, letter, legal, square, screen4x3, widescreen16x9 }
+enum NotyPageOrientation: String, Codable, CaseIterable { case portrait, landscape }
 struct NotyFolder: Identifiable, Codable, Hashable { var id: UUID; var name: String; var parentID: UUID? }
 struct NotyTextBox: Identifiable, Codable, Hashable { var id: UUID; var text: String; var x: Double; var y: Double; var width: Double; var height: Double; var fontSize: Double; var fontName: String?; var isBold: Bool; var isItalic: Bool; var isUnderlined: Bool; var colorHex: String; var alignment: NotyTextAlignment }
 struct NotyPageImage: Identifiable, Codable, Hashable { var id: UUID; var fileName: String; var x: Double; var y: Double; var width: Double; var height: Double; var rotationDegrees: Double }
-struct NotyPage: Identifiable, Codable, Hashable { var id: UUID; var template: NotyPageTemplate; var sourcePageIndex: Int?; var textBoxes: [NotyTextBox]; var images: [NotyPageImage]; var isBookmarked: Bool; var bookmarkTitle: String? }
+struct NotyPage: Identifiable, Codable, Hashable { var id: UUID; var template: NotyPageTemplate; var sourcePageIndex: Int?; var textBoxes: [NotyTextBox]; var images: [NotyPageImage]; var isBookmarked: Bool; var bookmarkTitle: String?; var paperColorHex: String; var sizePreset: NotyPageSizePreset; var orientation: NotyPageOrientation; var canvasSize: CGSize { get } }
 struct NotyDocument: Identifiable, Codable, Hashable { var id: UUID; var title: String; var kind: NotyDocumentKind; var folderID: UUID?; var pages: [NotyPage]; var createdAt: Date; var updatedAt: Date }
 @MainActor @Observable final class NotyStore {
   var folders: [NotyFolder]
@@ -36,6 +38,7 @@ struct NotyDocument: Identifiable, Codable, Hashable { var id: UUID; var title: 
   func addPage(documentID: UUID, after pageID: UUID?, template: NotyPageTemplate)
   func movePage(documentID: UUID, from: IndexSet, to: Int)
   func deletePage(documentID: UUID, pageID: UUID)
+  func updatePageFormat(documentID: UUID, pageID: UUID, template: NotyPageTemplate?, paperColorHex: String?, sizePreset: NotyPageSizePreset?, orientation: NotyPageOrientation?)
   func updateTextBoxes(documentID: UUID, pageID: UUID, textBoxes: [NotyTextBox])
   func updatePageBookmark(documentID: UUID, pageID: UUID, isBookmarked: Bool)
   func addPageImage(data: Data, documentID: UUID, pageID: UUID) throws -> NotyPageImage
@@ -52,7 +55,7 @@ struct NotyDocument: Identifiable, Codable, Hashable { var id: UUID; var title: 
 protocol OfficeConverting { func convertToPDF(fileURL: URL) async throws -> URL }
 ```
 
-The core agent may add signatures, but should keep these stable or message the others immediately. Store maintains authoritative document data and persists every mutation. Save imported original DOCX alongside the PDF. Page coordinates use a 612 × 792 point canvas so editor and export agree.
+The core agent may add signatures, but should keep these stable or message the others immediately. Store maintains authoritative document data and persists every mutation. Save imported original DOCX alongside the PDF. Page coordinates use each page's persisted canvas size. Legacy pages decode as US Letter portrait (612 × 792 points); resizing preserves existing ink, text and images proportionally.
 
 Editor agent provides `DocumentEditorView(documentID: UUID, store: NotyStore)` and `NotyExportService` with `exportPDF(documentID:store:) throws -> URL` and `exportPageImage(documentID:pageID:store:) throws -> URL`.
 
@@ -60,6 +63,6 @@ Library agent provides `LibraryView(store: NotyStore, oneDrive: OneDriveService)
 
 ## Functional priorities
 
-1. Reliable local persistence, import PDF/DOCX, folder/book creation, PencilKit writing, page controls, rich text boxes, photo objects, page bookmarks, restorable Trash and export.
+1. Reliable local persistence, import PDF/DOCX, folder/book creation, PencilKit writing, customizable paper formats, page controls, rich text boxes, photo objects, page bookmarks, presenter mode, restorable Trash and export.
 2. Minimal Notion-inspired visual language: warm white, ink grey, quiet borders, clear typography, simple iconography; comfortable on iPad and Apple Pencil.
 3. Cloud mirrors report real status and errors. iCloud Drive and OneDrive folder access is user selected in Files and persisted using iOS directory bookmarks that resolve back to security-scoped URLs. Foreground edits are mirrored promptly and `com.malik.noty.sync` is registered as a BGProcessingTask fallback for later retry opportunities. DOC/DOCX conversion stays on-device because the user's school blocks Microsoft Graph. Do not claim guaranteed background timing or provider upload timing; iPadOS schedules both.
