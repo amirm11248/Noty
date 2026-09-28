@@ -43,6 +43,37 @@ final class NotyOneDriveMirrorTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: exportedURL.path))
         XCTAssertTrue(service.syncStatus.contains("remain"), service.syncStatus)
     }
+
+    @MainActor
+    func testOneDriveFolderBookmarkRestoresAfterServiceRelaunch() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NotyOneDriveBookmarkQA-\(UUID().uuidString)", isDirectory: true)
+        let libraryURL = root.appendingPathComponent("library", isDirectory: true)
+        let selectedFolderURL = root.appendingPathComponent("selected-folder", isDirectory: true)
+        try FileManager.default.createDirectory(at: selectedFolderURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let initialService = OneDriveService()
+        initialService.disconnect()
+        try initialService.configureMirrorFolder(folderURL: selectedFolderURL)
+
+        let restoredService = OneDriveService()
+        defer { restoredService.disconnect() }
+        XCTAssertTrue(restoredService.isConnected)
+        XCTAssertEqual(restoredService.mirrorFolderName, selectedFolderURL.lastPathComponent)
+
+        let store = NotyStore(storageDirectoryURL: libraryURL)
+        _ = store.createDocument(title: "Relaunch mirror", kind: .note, folderID: nil)
+        await restoredService.syncAllPDFs(store: store)
+
+        XCTAssertNil(restoredService.lastError, restoredService.syncStatus)
+        let pdfCount = try FileManager.default.contentsOfDirectory(
+            at: selectedFolderURL,
+            includingPropertiesForKeys: nil
+        ).filter { $0.pathExtension.lowercased() == "pdf" }.count
+        XCTAssertEqual(pdfCount, 1)
+    }
+
 }
 
 private extension Collection {
