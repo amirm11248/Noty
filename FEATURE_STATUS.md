@@ -50,13 +50,16 @@ This file tracks the gap between the current native iPad app and the larger Good
 - [x] Tombstones prevent intentionally deleted documents from returning
 - [x] Foreground edit debounce and foreground/scene-transition sync
 - [x] `BGProcessingTask` retry scheduling
-- [x] Optional shared-folder discovery link stored in synchronizable iCloud Keychain
-- [x] A second Apple device can recover that link without retyping it
+- [x] Real Noty email/password accounts through Supabase Auth
+- [x] Auth session persisted securely in the device Keychain
+- [x] Postgres-backed per-user sync profile for iCloud/shared-folder link + folder name
+- [x] Row Level Security restricts each profile to its signed-in user
+- [x] A second device can recover workspace metadata after signing into the same Noty account
 - [x] Recovery and legacy-folder regression tests
 - [ ] Zero-tap Files permission transfer between devices — intentionally impossible with iOS security-scoped folder access
 - [ ] Same-document collaborative merge. Current document conflicts use document-level timestamp resolution rather than Google-Docs-style operation merging.
 
-iOS requires every device to approve external Files-folder access once. iCloud Keychain can synchronize the discovery link, but not the security-scoped directory grant itself.
+iOS requires every device to approve external Files-folder access once. The Noty backend can synchronize discovery metadata, but Apple does not allow the security-scoped directory grant itself to be copied between devices.
 
 
 ### OneDrive PDF mirror
@@ -72,6 +75,13 @@ iOS requires every device to approve external Files-folder access once. iCloud K
 - [x] Relaunch-persistence regression test
 
 This is intentionally Files-provider based rather than Microsoft Graph OAuth. That avoids requiring an Azure application ID and school-tenant consent. The OneDrive provider and iPadOS control the eventual network upload.
+
+## Cross-platform backend roadmap
+
+- [x] Cross-platform Noty account identity
+- [x] Backend workspace metadata
+- [ ] Web document replica / Supabase Storage layer. iCloud Drive links alone do not expose Noty's editable package format as a general browser API.
+- [ ] Web editor/client using the same Noty account
 
 ## Still missing for full Goodnotes-level parity
 
