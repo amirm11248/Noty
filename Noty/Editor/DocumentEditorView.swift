@@ -1184,12 +1184,13 @@ struct DocumentEditorView: View {
             return
         }
         let lines = recognizedText.components(separatedBy: .newlines).count
+        let canvasSize = page.canvasSize
         let box = NotyTextBox(
             text: recognizedText,
             x: 36,
             y: 36,
-            width: 540,
-            height: min(420, max(100, Double(lines) * 28 + 24)),
+            width: max(120, min(540, Double(canvasSize.width) - 72)),
+            height: max(80, min(420, Double(canvasSize.height) - 72, Double(lines) * 28 + 24)),
             fontSize: 18
         )
         store.updateTextBoxes(documentID: documentID, pageID: page.id, textBoxes: page.textBoxes + [box])
@@ -1692,16 +1693,29 @@ private enum EditorShape {
     func controlPoints(in size: CGSize) -> [CGPoint] {
         switch self {
         case .line:
-            return [CGPoint(x: 180, y: size.height / 2), CGPoint(x: size.width - 180, y: size.height / 2)]
-        case .rectangle:
             return [
-                CGPoint(x: 186, y: 290), CGPoint(x: size.width - 186, y: 290),
-                CGPoint(x: size.width - 186, y: 500), CGPoint(x: 186, y: 500), CGPoint(x: 186, y: 290)
+                CGPoint(x: size.width * 0.2, y: size.height * 0.5),
+                CGPoint(x: size.width * 0.8, y: size.height * 0.5)
+            ]
+        case .rectangle:
+            let left = size.width * 0.25
+            let right = size.width * 0.75
+            let top = size.height * 0.35
+            let bottom = size.height * 0.65
+            return [
+                CGPoint(x: left, y: top), CGPoint(x: right, y: top),
+                CGPoint(x: right, y: bottom), CGPoint(x: left, y: bottom),
+                CGPoint(x: left, y: top)
             ]
         case .ellipse:
+            let radiusX = size.width * 0.23
+            let radiusY = size.height * 0.14
             return (0...48).map { step in
                 let angle = CGFloat(step) / 48 * .pi * 2
-                return CGPoint(x: size.width / 2 + cos(angle) * 140, y: size.height / 2 + sin(angle) * 90)
+                return CGPoint(
+                    x: size.width / 2 + cos(angle) * radiusX,
+                    y: size.height / 2 + sin(angle) * radiusY
+                )
             }
         }
     }
