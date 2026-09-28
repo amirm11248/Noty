@@ -47,6 +47,8 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         UIApplicationSupportsDocumentBrowser: false
+        UIBackgroundModes:
+          - processing
         BGTaskSchedulerPermittedIdentifiers:
           - com.malik.noty.sync
   NotyTests:
