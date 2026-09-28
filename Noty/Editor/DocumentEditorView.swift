@@ -261,7 +261,7 @@ struct DocumentEditorView: View {
                         .buttonStyle(PresenterButtonStyle())
                         .padding(.horizontal, 9)
                         .padding(.vertical, 6)
-                        .background(.ultraThinMaterial.opacity(0.9), in: Capsule())
+                        .background(.ultraThinMaterial, in: Capsule())
                         .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.7))
                         .padding(18)
 
@@ -2122,11 +2122,6 @@ private struct PageThumbnail: View {
         .accessibilityLabel("Page \(number)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
-}
-
-private enum EditorCanvas {
-    static let width: CGFloat = 612
-    static let height: CGFloat = 792
 }
 
 private enum EditorPalette {
