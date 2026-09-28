@@ -1181,8 +1181,8 @@ private struct EditablePageCanvas: View {
                             onResize: { size in
                                 var updated = page.textBoxes
                                 guard let index = updated.firstIndex(where: { $0.id == box.id }) else { return }
-                                updated[index].width = Double(min(max(size.width, 80), EditorCanvas.width - CGFloat(updated[index].x)))
-                                updated[index].height = Double(min(max(size.height, 42), EditorCanvas.height - CGFloat(updated[index].y)))
+                                updated[index].width = Double(min(max(size.width, 80), canvasSize.width - CGFloat(updated[index].x)))
+                                updated[index].height = Double(min(max(size.height, 42), canvasSize.height - CGFloat(updated[index].y)))
                                 onTextBoxesChanged(updated)
                             }
                         )
@@ -1203,8 +1203,8 @@ private struct EditablePageCanvas: View {
                                 var updated = page.images
                                 guard let index = updated.firstIndex(where: { $0.id == selectedImage.id }) else { return }
                                 let aspect = max(CGFloat(updated[index].width / max(updated[index].height, 1)), 0.05)
-                                let width = min(max(size.width, 60), EditorCanvas.width - CGFloat(updated[index].x))
-                                let height = min(max(width / aspect, 60), EditorCanvas.height - CGFloat(updated[index].y))
+                                let width = min(max(size.width, 60), canvasSize.width - CGFloat(updated[index].x))
+                                let height = min(max(width / aspect, 60), canvasSize.height - CGFloat(updated[index].y))
                                 updated[index].width = Double(width)
                                 updated[index].height = Double(height)
                                 onImagesChanged(updated)
@@ -1456,6 +1456,15 @@ private extension UIColor {
         guard getRed(&red, green: &green, blue: &blue, alpha: nil) else { return nil }
         return String(format: "%02X%02X%02X", Int(red * 255), Int(green * 255), Int(blue * 255))
     }
+
+    var isDarkBackground: Bool {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        guard getRed(&red, green: &green, blue: &blue, alpha: nil) else { return false }
+        let luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        return luminance < 0.48
+    }
 }
 
 private extension Color {
@@ -1499,10 +1508,11 @@ private struct PageBackground: View {
 
     var body: some View {
         ZStack {
-            EditorPalette.paper
-            PageTemplateView(template: page.template)
+            Color(hex: page.paperColorHex)
             if let sourcePageIndex = page.sourcePageIndex, let sourcePDF {
                 PDFPageBackground(documentID: documentID, pageIndex: sourcePageIndex, sourcePDF: sourcePDF, imageSize: imageSize)
+            } else {
+                PageTemplateView(template: page.template, paperColorHex: page.paperColorHex)
             }
         }
         .clipped()
@@ -1538,43 +1548,68 @@ private struct PDFPageBackground: View {
 
 private struct PageTemplateView: View {
     let template: NotyPageTemplate
+    let paperColorHex: String
+
+    private var line: Color {
+        UIColor(hex: paperColorHex).isDarkBackground
+            ? Color.white.opacity(0.24)
+            : NotionTheme.templateLine
+    }
 
     var body: some View {
         Canvas { context, size in
-            let line = NotionTheme.templateLine
             switch template {
             case .blank:
                 break
-            case .ruled:
-                stride(from: 34.0, through: size.height, by: 28.0).forEach { y in
+            case .ruled, .narrowRuled:
+                let spacing = template == .narrowRuled ? 20.0 : 28.0
+                stride(from: 34.0, through: size.height, by: spacing).forEach { y in
                     var path = Path()
                     path.move(to: CGPoint(x: 28, y: y))
                     path.addLine(to: CGPoint(x: size.width - 24, y: y))
                     context.stroke(path, with: .color(line), lineWidth: 0.7)
                 }
                 var margin = Path()
-                margin.move(to: CGPoint(x: 56, y: 0))
-                margin.addLine(to: CGPoint(x: 56, y: size.height))
+                margin.move(to: CGPoint(x: min(56, size.width * 0.12), y: 0))
+                margin.addLine(to: CGPoint(x: min(56, size.width * 0.12), y: size.height))
                 context.stroke(margin, with: .color(line.opacity(0.7)), lineWidth: 0.7)
-            case .grid:
-                stride(from: 18.0, through: size.width, by: 24.0).forEach { x in
+            case .grid, .smallGrid:
+                let spacing = template == .smallGrid ? 16.0 : 24.0
+                stride(from: spacing, through: size.width, by: spacing).forEach { x in
                     var path = Path()
                     path.move(to: CGPoint(x: x, y: 0))
                     path.addLine(to: CGPoint(x: x, y: size.height))
-                    context.stroke(path, with: .color(line.opacity(0.7)), lineWidth: 0.55)
+                    context.stroke(path, with: .color(line.opacity(0.8)), lineWidth: 0.55)
                 }
-                stride(from: 18.0, through: size.height, by: 24.0).forEach { y in
+                stride(from: spacing, through: size.height, by: spacing).forEach { y in
                     var path = Path()
                     path.move(to: CGPoint(x: 0, y: y))
                     path.addLine(to: CGPoint(x: size.width, y: y))
-                    context.stroke(path, with: .color(line.opacity(0.7)), lineWidth: 0.55)
+                    context.stroke(path, with: .color(line.opacity(0.8)), lineWidth: 0.55)
                 }
             case .dots:
                 for x in stride(from: 18.0, through: size.width, by: 24.0) {
                     for y in stride(from: 18.0, through: size.height, by: 24.0) {
-                        let rect = CGRect(x: x - 0.8, y: y - 0.8, width: 1.6, height: 1.6)
+                        let rect = CGRect(x: x - 0.9, y: y - 0.9, width: 1.8, height: 1.8)
                         context.fill(Path(ellipseIn: rect), with: .color(line))
                     }
+                }
+            case .cornell:
+                let cueX = max(90, size.width * 0.3)
+                let summaryY = max(120, size.height - 110)
+                var divider = Path()
+                divider.move(to: CGPoint(x: cueX, y: 54))
+                divider.addLine(to: CGPoint(x: cueX, y: summaryY))
+                divider.move(to: CGPoint(x: 24, y: 54))
+                divider.addLine(to: CGPoint(x: size.width - 24, y: 54))
+                divider.move(to: CGPoint(x: 24, y: summaryY))
+                divider.addLine(to: CGPoint(x: size.width - 24, y: summaryY))
+                context.stroke(divider, with: .color(line.opacity(0.9)), lineWidth: 0.8)
+                stride(from: 82.0, through: summaryY - 12, by: 28.0).forEach { y in
+                    var path = Path()
+                    path.move(to: CGPoint(x: cueX + 12, y: y))
+                    path.addLine(to: CGPoint(x: size.width - 24, y: y))
+                    context.stroke(path, with: .color(line.opacity(0.75)), lineWidth: 0.55)
                 }
             }
         }
@@ -1944,17 +1979,60 @@ private extension NotyPageTemplate {
         switch self {
         case .blank: "Blank"
         case .ruled: "Ruled"
+        case .narrowRuled: "Narrow ruled"
         case .grid: "Grid"
-        case .dots: "Dots"
+        case .smallGrid: "Small grid"
+        case .dots: "Dotted"
+        case .cornell: "Cornell"
         }
     }
 
     var symbolName: String {
         switch self {
         case .blank: "square"
-        case .ruled: "line.3.horizontal"
-        case .grid: "grid"
+        case .ruled, .narrowRuled: "line.3.horizontal"
+        case .grid, .smallGrid: "grid"
         case .dots: "circle.grid.3x3"
+        case .cornell: "rectangle.split.2x1"
+        }
+    }
+}
+
+private extension NotyPageSizePreset {
+    var editorLabel: String {
+        switch self {
+        case .a4: "A4"
+        case .a5: "A5"
+        case .letter: "US Letter"
+        case .legal: "US Legal"
+        case .square: "Square"
+        case .screen4x3: "Screen 4:3"
+        case .widescreen16x9: "Widescreen 16:9"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .square: "square"
+        case .screen4x3: "rectangle"
+        case .widescreen16x9: "rectangle.wide"
+        default: "doc"
+        }
+    }
+}
+
+private extension NotyPageOrientation {
+    var editorLabel: String {
+        switch self {
+        case .portrait: "Portrait"
+        case .landscape: "Landscape"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .portrait: "rectangle.portrait"
+        case .landscape: "rectangle"
         }
     }
 }
