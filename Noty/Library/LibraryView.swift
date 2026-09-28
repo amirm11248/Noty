@@ -20,6 +20,7 @@ struct LibraryView: View {
     @State private var backgroundSyncTask: LibraryBackgroundTask?
     @State private var alertMessage: String?
     @State private var searchResults: [NotySearchResult] = []
+    @State private var folderSyncProfile = FolderSyncProfileStore()
     @AppStorage("noty.library.favoriteDocumentIDs") private var favoriteIDsValue = ""
     @AppStorage("noty.library.recentDocumentIDs") private var recentIDsValue = ""
     @AppStorage("noty.library.sortOrder") private var sortOrderValue = LibrarySortOrder.edited.rawValue
@@ -1450,7 +1451,6 @@ private struct LibrarySettingsView: View {
     @State private var isChoosingFolder = false
     @State private var folderPickerDestination: FolderPickerDestination?
     @State private var errorMessage: String?
-    @State private var folderSyncProfile = FolderSyncProfileStore()
     @State private var sharedFolderLinkDraft = ""
 
     var body: some View {
