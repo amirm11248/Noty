@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		D0B1C2D3E4F5061728394A5B /* FontKit in Frameworks */ = {isa = PBXBuildFile; productRef = B0B1C2D3E4F5061728394A5B /* FontKit */; };
 		E0B1C2D3E4F5061728394A5B /* FontInter in Frameworks */ = {isa = PBXBuildFile; productRef = C0B1C2D3E4F5061728394A5B /* FontInter */; };
 		2140B165EF8C2B6D6562EAF0 /* NotionTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36C6DD6C3F9FBA311AEE052E /* NotionTheme.swift */; };
 		2AAB49EECF23123C2FB3B089 /* noty-qa.docx in Resources */ = {isa = PBXBuildFile; fileRef = 32A4025F6E9EA4ABE842EA71 /* noty-qa.docx */; };
@@ -84,7 +83,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D0B1C2D3E4F5061728394A5B /* FontKit in Frameworks */,
 				E0B1C2D3E4F5061728394A5B /* FontInter in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -218,7 +216,6 @@
 			);
 			name = Noty;
 			packageProductDependencies = (
-				B0B1C2D3E4F5061728394A5B /* FontKit */,
 				C0B1C2D3E4F5061728394A5B /* FontInter */,
 			);
 			productName = Noty;
@@ -361,11 +358,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		B0B1C2D3E4F5061728394A5B /* FontKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A0B1C2D3E4F5061728394A5B /* XCRemoteSwiftPackageReference "FontKit" */;
-			productName = FontKit;
-		};
 		C0B1C2D3E4F5061728394A5B /* FontInter */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A0B1C2D3E4F5061728394A5B /* XCRemoteSwiftPackageReference "FontKit" */;
