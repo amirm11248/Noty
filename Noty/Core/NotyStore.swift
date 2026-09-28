@@ -188,14 +188,41 @@ final class NotyStore {
 
     func deleteDocument(id: UUID) {
         guard let index = documents.firstIndex(where: { $0.id == id }) else { return }
-        let removedDocument = documents.remove(at: index)
+        let document = documents[index]
         let deletedAt = Self.storeTimestamp()
+        let previousDeletionRecords = deletionRecords
+
+        let preparedItem: NotyTrashedDocument
+        do {
+            preparedItem = try prepareLocalTrashPackage(for: document, deletedAt: deletedAt)
+        } catch {
+            lastOperationMessage = "Noty could not move this document to Trash, so it was not deleted: \(error.localizedDescription)"
+            return
+        }
+
+        documents.remove(at: index)
         deletionRecords.removeAll { $0.id == id }
         deletionRecords.append(NotyDeletionRecord(id: id, deletedAt: deletedAt))
-        let saved = persistCurrentManifest()
-        if saved {
-            moveDeletedDocumentToLocalTrash(removedDocument, deletedAt: deletedAt)
+
+        guard persistCurrentManifest() else {
+            documents.insert(document, at: min(index, documents.count))
+            deletionRecords = previousDeletionRecords
+            try? fileManager.removeItem(
+                at: trashDirectoryURL.appendingPathComponent(preparedItem.recoveryDirectoryName, isDirectory: true)
+            )
+            return
         }
+
+        let activeAssets = assetDirectoryURL(documentID: id)
+        if fileManager.fileExists(atPath: activeAssets.path) {
+            do {
+                try fileManager.removeItem(at: activeAssets)
+            } catch {
+                lastOperationMessage = "The document is in Trash, but Noty could not remove its old active asset copy: \(error.localizedDescription)"
+            }
+        }
+        trashItems.removeAll { $0.id == id }
+        trashItems.insert(preparedItem, at: 0)
     }
 
     func restoreTrashedDocument(id: UUID) {
@@ -1157,15 +1184,22 @@ final class NotyStore {
         }
     }
 
-    private func moveDeletedDocumentToLocalTrash(_ document: NotyDocument, deletedAt: Date) {
+    private func prepareLocalTrashPackage(
+        for document: NotyDocument,
+        deletedAt: Date
+    ) throws -> NotyTrashedDocument {
         let source = assetDirectoryURL(documentID: document.id)
         let directoryName = "\(document.id.uuidString)-\(Int(deletedAt.timeIntervalSince1970))"
         let packageURL = trashDirectoryURL.appendingPathComponent(directoryName, isDirectory: true)
         let trashedAssetsURL = packageURL.appendingPathComponent("Assets", isDirectory: true)
+
+        if fileManager.fileExists(atPath: packageURL.path) {
+            try fileManager.removeItem(at: packageURL)
+        }
+        try fileManager.createDirectory(at: packageURL, withIntermediateDirectories: true)
         do {
-            try fileManager.createDirectory(at: packageURL, withIntermediateDirectories: true)
             if fileManager.fileExists(atPath: source.path) {
-                try fileManager.moveItem(at: source, to: trashedAssetsURL)
+                try fileManager.copyItem(at: source, to: trashedAssetsURL)
             }
 
             let item = NotyTrashedDocument(
@@ -1176,11 +1210,14 @@ final class NotyStore {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .millisecondsSince1970
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(item).write(to: packageURL.appendingPathComponent("item.json"), options: .atomic)
-            trashItems.removeAll { $0.id == document.id }
-            trashItems.insert(item, at: 0)
+            try encoder.encode(item).write(
+                to: packageURL.appendingPathComponent("item.json"),
+                options: .atomic
+            )
+            return item
         } catch {
-            lastOperationMessage = "The document was removed from the library, but its local files could not be moved to Trash: \(error.localizedDescription)"
+            try? fileManager.removeItem(at: packageURL)
+            throw error
         }
     }
 
