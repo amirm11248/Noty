@@ -1502,7 +1502,7 @@ private struct LibrarySettingsView: View {
 
                 Divider()
 
-                Text("Shared folder link")
+                Text("Optional shared folder link")
                     .font(.subheadline.weight(.semibold))
 
                 TextField("https://www.icloud.com/…", text: $sharedFolderLinkDraft)
@@ -1540,7 +1540,7 @@ private struct LibrarySettingsView: View {
             } header: {
                 Text("Sync with Folder")
             } footer: {
-                Text("For the smoothest setup, make an iCloud Drive folder shared as “Anyone with the link” and “Can make changes”, paste that link here once, then choose the folder. iCloud Keychain can carry the link to your other Apple devices. iOS still requires each device to approve Files access once.")
+                Text("For your own devices on the same Apple Account, keep the iCloud Drive folder private and choose it once on each device. A shared-folder link is optional for discovery or other people. Prefer “People You Choose”; “Anyone with the link” plus edit access means anyone who gets that URL can modify the folder. iCloud Keychain can carry a saved link to your other Apple devices, but iOS still requires each device to approve Files access once.")
             }
 
             Section {
