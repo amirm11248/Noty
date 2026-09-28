@@ -547,13 +547,13 @@ struct DocumentEditorView: View {
                         }
                     }
                     Section("Shapes") {
-                        Button { canvasController.insertShape(.line, color: inkUIColor, width: inkWidth) } label: {
+                        Button { canvasController.insertShape(.line, color: inkUIColor, width: inkWidth, canvasSize: selectedPage?.canvasSize ?? CGSize(width: 612, height: 792)) } label: {
                             Label("Straight line", systemImage: "line.diagonal")
                         }
-                        Button { canvasController.insertShape(.rectangle, color: inkUIColor, width: inkWidth) } label: {
+                        Button { canvasController.insertShape(.rectangle, color: inkUIColor, width: inkWidth, canvasSize: selectedPage?.canvasSize ?? CGSize(width: 612, height: 792)) } label: {
                             Label("Rectangle", systemImage: "rectangle")
                         }
-                        Button { canvasController.insertShape(.ellipse, color: inkUIColor, width: inkWidth) } label: {
+                        Button { canvasController.insertShape(.ellipse, color: inkUIColor, width: inkWidth, canvasSize: selectedPage?.canvasSize ?? CGSize(width: 612, height: 792)) } label: {
                             Label("Ellipse", systemImage: "circle")
                         }
                     }
@@ -1115,11 +1115,17 @@ private struct EditablePageCanvas: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let scale = proxy.size.width / EditorCanvas.width
+            let canvasSize = page.canvasSize
+            let scale = proxy.size.width / canvasSize.width
             ZStack(alignment: .topLeading) {
                 ZStack(alignment: .topLeading) {
-                    PageBackground(documentID: documentID, page: page, sourcePDF: sourcePDF, imageSize: CGSize(width: 1836, height: 2376))
-                        .frame(width: EditorCanvas.width, height: EditorCanvas.height)
+                    PageBackground(
+                        documentID: documentID,
+                        page: page,
+                        sourcePDF: sourcePDF,
+                        imageSize: CGSize(width: canvasSize.width * 3, height: canvasSize.height * 3)
+                    )
+                    .frame(width: canvasSize.width, height: canvasSize.height)
 
                     ForEach(page.images) { pageImage in
                         if let image = store.pageImage(documentID: documentID, pageID: page.id, image: pageImage) {
@@ -1139,12 +1145,13 @@ private struct EditablePageCanvas: View {
 
                     PencilCanvasView(
                         drawing: store.drawing(documentID: documentID, pageID: page.id),
+                        canvasSize: canvasSize,
                         controller: canvasController,
                         inkSettings: inkSettings,
                         isToolPickerVisible: isToolPickerVisible,
                         onDrawingChanged: onDrawingChanged
                     )
-                    .frame(width: EditorCanvas.width, height: EditorCanvas.height)
+                    .frame(width: canvasSize.width, height: canvasSize.height)
                     .id(page.id)
 
                     ForEach(page.textBoxes) { box in
@@ -1167,8 +1174,8 @@ private struct EditablePageCanvas: View {
                             onMove: { origin in
                                 var updated = page.textBoxes
                                 guard let index = updated.firstIndex(where: { $0.id == box.id }) else { return }
-                                updated[index].x = Double(min(max(origin.x, 0), EditorCanvas.width - CGFloat(updated[index].width)))
-                                updated[index].y = Double(min(max(origin.y, 0), EditorCanvas.height - CGFloat(updated[index].height)))
+                                updated[index].x = Double(min(max(origin.x, 0), canvasSize.width - CGFloat(updated[index].width)))
+                                updated[index].y = Double(min(max(origin.y, 0), canvasSize.height - CGFloat(updated[index].height)))
                                 onTextBoxesChanged(updated)
                             },
                             onResize: { size in
@@ -1188,8 +1195,8 @@ private struct EditablePageCanvas: View {
                             onMove: { origin in
                                 var updated = page.images
                                 guard let index = updated.firstIndex(where: { $0.id == selectedImage.id }) else { return }
-                                updated[index].x = Double(min(max(origin.x, 0), EditorCanvas.width - CGFloat(updated[index].width)))
-                                updated[index].y = Double(min(max(origin.y, 0), EditorCanvas.height - CGFloat(updated[index].height)))
+                                updated[index].x = Double(min(max(origin.x, 0), canvasSize.width - CGFloat(updated[index].width)))
+                                updated[index].y = Double(min(max(origin.y, 0), canvasSize.height - CGFloat(updated[index].height)))
                                 onImagesChanged(updated)
                             },
                             onResize: { size in
@@ -1205,18 +1212,19 @@ private struct EditablePageCanvas: View {
                         )
                     }
                 }
-                .frame(width: EditorCanvas.width, height: EditorCanvas.height)
+                .frame(width: canvasSize.width, height: canvasSize.height)
                 .scaleEffect(scale, anchor: .topLeading)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .background(EditorPalette.paper)
         }
-        .aspectRatio(EditorCanvas.width / EditorCanvas.height, contentMode: .fit)
+        .aspectRatio(page.canvasSize.width / page.canvasSize.height, contentMode: .fit)
     }
 }
 
 private struct PencilCanvasView: UIViewRepresentable {
     let drawing: PKDrawing
+    let canvasSize: CGSize
     let controller: InkCanvasController
     let inkSettings: EditorInkSettings
     let isToolPickerVisible: Bool
@@ -1234,7 +1242,7 @@ private struct PencilCanvasView: UIViewRepresentable {
         canvas.isScrollEnabled = false
         canvas.minimumZoomScale = 1
         canvas.maximumZoomScale = 1
-        canvas.contentSize = CGSize(width: EditorCanvas.width, height: EditorCanvas.height)
+        canvas.contentSize = canvasSize
         canvas.tool = inkSettings.makeTool
         canvas.delegate = context.coordinator
         context.coordinator.toolPicker.addObserver(canvas)
@@ -1246,6 +1254,7 @@ private struct PencilCanvasView: UIViewRepresentable {
     }
 
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
+        canvas.contentSize = canvasSize
         context.coordinator.onDrawingChanged = onDrawingChanged
         context.coordinator.controller = controller
         controller.attach(canvas, onDrawingChanged: onDrawingChanged)
@@ -1335,9 +1344,9 @@ private final class InkCanvasController: ObservableObject {
         refreshUndoState()
     }
 
-    func insertShape(_ shape: EditorShape, color: UIColor, width: Double) {
+    func insertShape(_ shape: EditorShape, color: UIColor, width: Double, canvasSize: CGSize) {
         guard let canvas = canvasView else { return }
-        let points = shape.controlPoints(in: CGSize(width: EditorCanvas.width, height: EditorCanvas.height))
+        let points = shape.controlPoints(in: canvasSize)
         let strokePoints = points.enumerated().map { index, point in
             PKStrokePoint(
                 location: point,
@@ -1823,7 +1832,7 @@ private struct PageThumbnail: View {
                 ZStack {
                     PageBackground(documentID: documentID, page: page, sourcePDF: sourcePDF, imageSize: CGSize(width: 360, height: 466))
                     GeometryReader { proxy in
-                        let scale = proxy.size.width / EditorCanvas.width
+                        let scale = proxy.size.width / page.canvasSize.width
                         ForEach(page.images) { pageImage in
                             if let image = store.pageImage(documentID: documentID, pageID: page.id, image: pageImage) {
                                 Image(uiImage: image)
@@ -1846,7 +1855,7 @@ private struct PageThumbnail: View {
 
                     let drawing = store.drawing(documentID: documentID, pageID: page.id)
                     if !drawing.strokes.isEmpty {
-                        Image(uiImage: drawing.image(from: CGRect(x: 0, y: 0, width: EditorCanvas.width, height: EditorCanvas.height), scale: 0.35))
+                        Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: page.canvasSize), scale: 0.35))
                             .resizable()
                             .scaledToFill()
                     }
@@ -1858,7 +1867,7 @@ private struct PageThumbnail: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                     }
                 }
-                .aspectRatio(EditorCanvas.width / EditorCanvas.height, contentMode: .fit)
+                .aspectRatio(page.canvasSize.width / page.canvasSize.height, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(isSelected ? EditorPalette.selection : EditorPalette.border, lineWidth: isSelected ? 1.2 : 0.8))
                 .shadow(color: Color.black.opacity(isSelected ? 0.06 : 0.02), radius: 2, x: 0, y: 1)
