@@ -310,48 +310,50 @@ struct DocumentEditorView: View {
     }
 
     private func header(_ document: NotyDocument) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 7) {
             Button { dismiss() } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 32, height: 32)
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 30, height: 30)
             }
             .buttonStyle(NotionIconButtonStyle())
             .accessibilityLabel("Back to library")
 
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 5) {
-                    Text("Noty")
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .semibold))
-                    Text(document.kind.editorLabel)
-                }
-                .font(.system(size: 11, weight: .regular))
+            Text("Noty")
+                .font(NotionTheme.caption)
                 .foregroundStyle(EditorPalette.secondaryInk)
 
-                Button {
-                    renameTitle = document.title
-                    isShowingRename = true
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(document.title)
-                            .font(.system(size: 18, weight: .semibold))
-                            .tracking(-0.25)
-                            .lineLimit(1)
-                    }
-                }
-                .buttonStyle(.plain)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(NotionTheme.inkTertiary)
+
+            Image(systemName: document.kind.editorSymbolName)
+                .font(.system(size: 12))
+                .foregroundStyle(EditorPalette.secondaryInk)
+
+            Button {
+                renameTitle = document.title
+                isShowingRename = true
+            } label: {
+                Text(document.title)
+                    .font(NotionTheme.font(13, weight: .medium))
+                    .foregroundStyle(EditorPalette.ink)
+                    .lineLimit(1)
+                    .padding(.horizontal, 4)
+                    .frame(height: 28)
             }
+            .buttonStyle(NotionRowButtonStyle())
+            .accessibilityHint("Rename document")
 
             Spacer(minLength: 10)
 
             Button {
-                withAnimation(.easeInOut(duration: 0.18)) {
+                withAnimation(.easeInOut(duration: 0.16)) {
                     isShowingThumbnails.toggle()
                 }
             } label: {
                 Image(systemName: "sidebar.left")
-                    .font(.system(size: 14))
+                    .font(.system(size: 13))
                     .frame(width: 30, height: 30)
             }
             .buttonStyle(NotionIconButtonStyle())
@@ -367,14 +369,14 @@ struct DocumentEditorView: View {
                 }
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(width: 32, height: 32)
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 30, height: 30)
             }
             .buttonStyle(NotionIconButtonStyle())
             .accessibilityLabel("Add page")
 
             Button {
-                withAnimation(.easeInOut(duration: 0.18)) {
+                withAnimation(.easeInOut(duration: 0.16)) {
                     isPresenterControlsVisible = true
                     isLaserPointerEnabled = false
                     presenterLaserLocation = nil
@@ -383,7 +385,7 @@ struct DocumentEditorView: View {
                 }
             } label: {
                 Image(systemName: "play.rectangle")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .frame(width: 30, height: 30)
             }
             .buttonStyle(NotionIconButtonStyle())
@@ -404,30 +406,30 @@ struct DocumentEditorView: View {
                 }
             } label: {
                 Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .frame(width: 30, height: 30)
             }
             .buttonStyle(NotionIconButtonStyle())
             .accessibilityLabel("Export document")
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 9)
-        .background(EditorPalette.paper)
+        .padding(.horizontal, 12)
+        .frame(height: 46)
+        .background(NotionTheme.canvas)
     }
 
     private func thumbnailRail(_ document: NotyDocument, sourcePDF: PDFDocument?) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 NotionSectionLabel(text: "Pages")
                 Spacer()
                 Text("\(document.pages.count)")
-                    .font(.system(size: 11, weight: .regular))
+                    .font(NotionTheme.captionSmall)
                     .foregroundStyle(EditorPalette.secondaryInk)
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 3)
 
             ScrollView {
-                LazyVStack(spacing: 12) {
+                LazyVStack(spacing: 10) {
                     ForEach(Array(document.pages.enumerated()), id: \.element.id) { index, page in
                         PageThumbnail(
                             documentID: documentID,
@@ -471,20 +473,19 @@ struct DocumentEditorView: View {
                         addPage(template: .blank)
                     } label: {
                         Label("New page", systemImage: "plus")
-                            .font(.system(size: 13, weight: .regular))
+                            .font(NotionTheme.bodySmall)
                             .foregroundStyle(EditorPalette.secondaryInk)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(Color.clear, in: RoundedRectangle(cornerRadius: NotionTheme.radiusMedium))
-                            .overlay(RoundedRectangle(cornerRadius: NotionTheme.radiusMedium).stroke(EditorPalette.border, style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
+                            .padding(.vertical, 9)
+                            .background(NotionTheme.rowHover, in: RoundedRectangle(cornerRadius: NotionTheme.radiusMedium))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(NotionRowButtonStyle())
                 }
                 .padding(.vertical, 2)
             }
         }
-        .padding(14)
-        .frame(width: 208)
+        .padding(11)
+        .frame(width: 184)
         .background(EditorPalette.rail)
     }
 
@@ -498,7 +499,7 @@ struct DocumentEditorView: View {
                 .accessibilityLabel("Previous page")
 
                 Text("\((selectedPageIndex(in: document) ?? 0) + 1) / \(max(document.pages.count, 1))")
-                    .font(.system(size: 12, weight: .medium, design: .rounded).monospacedDigit())
+                    .font(NotionTheme.font(12, weight: .medium).monospacedDigit())
                     .foregroundStyle(EditorPalette.secondaryInk)
                     .frame(minWidth: 44)
                     .accessibilityLabel("Page \((selectedPageIndex(in: document) ?? 0) + 1) of \(document.pages.count)")
@@ -1079,11 +1080,12 @@ struct DocumentEditorView: View {
                     .font(.system(size: 30, weight: .light))
                     .foregroundStyle(EditorPalette.secondaryInk)
                 Text("This document has no pages")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(NotionTheme.font(14, weight: .medium))
                 Button("Add a blank page") {
                     store.addPage(documentID: documentID, after: nil, template: .blank)
                 }
-                .buttonStyle(.bordered)
+                .font(NotionTheme.control)
+                .buttonStyle(NotionPrimaryButtonStyle())
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -2128,9 +2130,9 @@ private struct PageThumbnail: View {
                 .aspectRatio(page.canvasSize.width / page.canvasSize.height, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(isSelected ? EditorPalette.selection : EditorPalette.border, lineWidth: isSelected ? 1.2 : 0.8))
-                .shadow(color: Color.black.opacity(isSelected ? 0.06 : 0.02), radius: 2, x: 0, y: 1)
+                .shadow(color: Color.black.opacity(0.025), radius: 1, x: 0, y: 1)
                 Text("Page \(number)")
-                    .font(.system(size: 11, weight: isSelected ? .medium : .regular))
+                    .font(isSelected ? NotionTheme.font(11, weight: .medium) : NotionTheme.captionSmall)
                     .foregroundStyle(isSelected ? EditorPalette.ink : EditorPalette.secondaryInk)
             }
         }
@@ -2200,6 +2202,14 @@ private extension NotyDocumentKind {
         case .note: "Note"
         case .pdf: "PDF document"
         case .book: "Book"
+        }
+    }
+
+    var editorSymbolName: String {
+        switch self {
+        case .note: "doc.text"
+        case .pdf: "doc.richtext"
+        case .book: "book"
         }
     }
 }

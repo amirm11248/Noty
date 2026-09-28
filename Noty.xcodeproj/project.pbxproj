@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E0B1C2D3E4F5061728394A5B /* FontInter in Frameworks */ = {isa = PBXBuildFile; productRef = C0B1C2D3E4F5061728394A5B /* FontInter */; };
 		2140B165EF8C2B6D6562EAF0 /* NotionTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36C6DD6C3F9FBA311AEE052E /* NotionTheme.swift */; };
 		2AAB49EECF23123C2FB3B089 /* noty-qa.docx in Resources */ = {isa = PBXBuildFile; fileRef = 32A4025F6E9EA4ABE842EA71 /* noty-qa.docx */; };
 		3E5074AFF66E8E9A30923F0E /* JSZip-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = FEA69734FB84D67F4028A898 /* JSZip-LICENSE.txt */; };
@@ -76,6 +77,17 @@
 		FE90A159BDCB19FC198B0AE0 /* NotyHandwritingRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyHandwritingRecognizer.swift; sourceTree = "<group>"; };
 		FEA69734FB84D67F4028A898 /* JSZip-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "JSZip-LICENSE.txt"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		F0B1C2D3E4F5061728394A5B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E0B1C2D3E4F5061728394A5B /* FontInter in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		015BB1E40E1828F903F2A8F5 /* Editor */ = {
@@ -195,6 +207,7 @@
 			buildConfigurationList = FF3E9B1D907CD05A53C15416 /* Build configuration list for PBXNativeTarget "Noty" */;
 			buildPhases = (
 				071A8D0B2C3066D969F6D37F /* Sources */,
+				F0B1C2D3E4F5061728394A5B /* Frameworks */,
 				BE7F08C080C33AF139DB19C3 /* Resources */,
 			);
 			buildRules = (
@@ -203,6 +216,7 @@
 			);
 			name = Noty;
 			packageProductDependencies = (
+				C0B1C2D3E4F5061728394A5B /* FontInter */,
 			);
 			productName = Noty;
 			productReference = 5B8B4CB7D79DAD5D55798EC4 /* Noty.app */;
@@ -252,6 +266,9 @@
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 23B79ECB6A47A7C7FE5277DC /* Products */;
+			packageReferences = (
+				A0B1C2D3E4F5061728394A5B /* XCRemoteSwiftPackageReference "FontKit" */,
+			);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -328,6 +345,25 @@
 			targetProxy = 85C056C9BB022750D2A86F51 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A0B1C2D3E4F5061728394A5B /* XCRemoteSwiftPackageReference "FontKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/VishwaiOSDev/FontKit.git";
+			requirement = {
+				kind = revision;
+				revision = d058c81d3c16d1993f40240d071e360a3519e571;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C0B1C2D3E4F5061728394A5B /* FontInter */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A0B1C2D3E4F5061728394A5B /* XCRemoteSwiftPackageReference "FontKit" */;
+			productName = FontInter;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		3393A8B70F7E17B8770C786B /* Debug */ = {

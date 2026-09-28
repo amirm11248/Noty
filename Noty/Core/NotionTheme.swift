@@ -1,3 +1,5 @@
+import CoreText
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -136,20 +138,50 @@ enum NotionTheme {
     static let sidebarRowHeight: CGFloat = 32
     static let pageMaxWidth: CGFloat = 900
 
-    // MARK: - Typography (one sans family, tight display)
+    // MARK: - Typography
 
-    /// 14pt medium — sidebar rows, database rows, buttons.
-    static func uiText(_ size: CGFloat = 14, weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight)
+    enum TypefaceWeight {
+        case regular
+        case medium
+        case semibold
+        case bold
     }
 
-    /// Notion page title: 32pt bold, tight. (Marketing uses -0.02em; product titles are compact.)
-    static let pageTitle = Font.system(size: 32, weight: .bold)
+    /// Notion uses a tuned NotionInter build. Inter is the closest
+    /// redistribution-safe match, so all chrome goes through one family.
+    static func font(_ size: CGFloat, weight: TypefaceWeight = .regular) -> Font {
+        let postScriptName: String
+        switch weight {
+        case .regular:
+            postScriptName = "Inter-Regular"
+        case .medium:
+            postScriptName = "Inter-Medium"
+        case .semibold:
+            postScriptName = "Inter-SemiBold"
+        case .bold:
+            postScriptName = "Inter-Bold"
+        }
+        return .custom(postScriptName, size: size)
+    }
 
-    /// Section micro-label: 11pt semibold, wide tracking, secondary ink.
-    static let microLabel = Font.system(size: 11, weight: .semibold)
+    static let body = font(14)
+    static let bodySmall = font(13)
+    static let caption = font(12)
+    static let captionSmall = font(11)
+    static let control = font(13, weight: .medium)
 
-    static let microTracking: CGFloat = 0.8
+    /// 14pt regular/medium — sidebar rows, database rows, buttons.
+    static func uiText(_ size: CGFloat = 14, weight: TypefaceWeight = .regular) -> Font {
+        font(size, weight: weight)
+    }
+
+    /// Notion page title: Inter Bold, compact and slightly tracked in.
+    static let pageTitle = font(32, weight: .bold)
+
+    /// Section micro-label: small Inter semibold with understated tracking.
+    static let microLabel = font(11, weight: .semibold)
+
+    static let microTracking: CGFloat = 0.45
 
     // MARK: - Shadows (used sparingly; cards use borders instead)
 
@@ -259,7 +291,7 @@ struct NotionToolbarButtonStyle: ButtonStyle {
 struct NotionPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .medium))
+            .font(NotionTheme.control)
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
             .frame(height: 30)
@@ -267,5 +299,103 @@ struct NotionPrimaryButtonStyle: ButtonStyle {
                 configuration.isPressed ? NotionTheme.accentPressed : NotionTheme.accent,
                 in: RoundedRectangle(cornerRadius: NotionTheme.radiusMedium)
             )
+    }
+}
+
+
+// MARK: - Navigation chrome
+
+/// Flat row interaction used by Notion-style page and folder lists.
+struct NotionRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                configuration.isPressed ? NotionTheme.rowPressed : Color.clear,
+                in: RoundedRectangle(cornerRadius: NotionTheme.radiusMedium)
+            )
+            .contentShape(Rectangle())
+    }
+}
+
+/// Compact search treatment that lives inside the sidebar instead of using
+/// Apple's large navigation search chrome.
+struct NotionSearchField: View {
+    @Binding var text: String
+    var placeholder = "Search"
+
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(NotionTheme.inkSecondary)
+
+            TextField(placeholder, text: $text)
+                .font(NotionTheme.font(13))
+                .foregroundStyle(NotionTheme.ink)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .focused($isFocused)
+                .submitLabel(.search)
+
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(NotionTheme.inkTertiary)
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 30)
+        .background(
+            isFocused ? NotionTheme.rowPressed : NotionTheme.rowHover,
+            in: RoundedRectangle(cornerRadius: NotionTheme.radiusMedium)
+        )
+        .overlay {
+            if isFocused {
+                RoundedRectangle(cornerRadius: NotionTheme.radiusMedium)
+                    .stroke(NotionTheme.borderStrong, lineWidth: 0.75)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: isFocused)
+    }
+}
+
+
+// MARK: - Font registration
+
+/// Registers the Inter resources shipped by the pinned FontInter package
+/// without importing its Swift module. This keeps Noty's existing
+/// xcodebuild -target CI path working while still embedding the font resource.
+enum NotionFontRegistrar {
+    static func registerInter() {
+        guard let resources = Bundle.main.resourceURL else { return }
+
+        let fileManager = FileManager.default
+        let topLevel = (try? fileManager.contentsOfDirectory(
+            at: resources,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        let candidateBundles = topLevel.filter {
+            $0.pathExtension == "bundle" &&
+            $0.lastPathComponent.localizedCaseInsensitiveContains("FontInter")
+        }
+
+        for bundleURL in candidateBundles {
+            guard let fontBundle = Bundle(url: bundleURL) else { continue }
+            let fontURLs = fontBundle.urls(forResourcesWithExtension: "ttf", subdirectory: nil) ?? []
+            for url in fontURLs {
+                CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+            }
+        }
     }
 }

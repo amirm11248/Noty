@@ -10,6 +10,11 @@ struct NotyApp: App {
     @State private var importAlertTitle = "Import"
     @State private var importAlertMessage: String?
 
+    init() {
+        // Register the Inter resources before SwiftUI resolves shared theme fonts.
+        NotionFontRegistrar.registerInter()
+    }
+
     var body: some Scene {
         WindowGroup {
             LibraryView(store: store, oneDrive: oneDrive)

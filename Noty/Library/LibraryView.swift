@@ -34,28 +34,6 @@ struct LibraryView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
                 .navigationTitle("")
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Menu {
-                            Button("New folder", systemImage: "folder.badge.plus") {
-                                present(.name(.newFolder(parentID: selectedFolderID)))
-                            }
-                            Button("New note", systemImage: "square.and.pencil") {
-                                createDocument(.note)
-                            }
-                            Button("New book", systemImage: "books.vertical") {
-                                createDocument(.book)
-                            }
-                            Divider()
-                            Button("Import from Files", systemImage: "square.and.arrow.down") {
-                                isImporting = true
-                            }
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .accessibilityLabel("Create or import")
-                    }
-                }
         } detail: {
             detail
         }
@@ -152,7 +130,7 @@ struct LibraryView: View {
                 Button {
                     selection = .all
                 } label: {
-                    sidebarDestination("Library", symbol: "square.grid.2x2", count: store.documents.count)
+                    sidebarDestination("Library", symbol: "house", count: store.documents.count)
                 }
                 .buttonStyle(.plain)
                 .notionSidebarRow(isSelected: selection == .all)
@@ -168,7 +146,37 @@ struct LibraryView: View {
                 }
                 .buttonStyle(.plain)
                 .notionSidebarRow(isSelected: selection == .favorites)
+            }
 
+            Section {
+                if store.folders.isEmpty {
+                    Text("No folders yet")
+                        .font(NotionTheme.bodySmall)
+                        .foregroundStyle(NotionTheme.inkTertiary)
+                        .padding(.leading, 4)
+                } else {
+                    ForEach(folderOutline, id: \.folder.id) { row in
+                        folderSidebarRow(row)
+                    }
+                }
+            } header: {
+                HStack {
+                    NotionSectionLabel(text: "Folders")
+                    Spacer()
+                    Button {
+                        present(.name(.newFolder(parentID: selectedFolderID)))
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(NotionTheme.inkTertiary)
+                            .frame(width: 22, height: 22)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("New folder")
+                }
+            }
+
+            Section {
                 Button {
                     selection = .trash
                     searchText = ""
@@ -177,31 +185,23 @@ struct LibraryView: View {
                 }
                 .buttonStyle(.plain)
                 .notionSidebarRow(isSelected: selection == .trash)
-            } header: {
-                NotionSectionLabel(text: "Workspace")
-            }
 
-            Section {
-                if store.folders.isEmpty {
-                    Text("Folders appear here")
-                        .font(.system(size: 13))
-                        .foregroundStyle(NotionTheme.inkTertiary)
-                } else {
-                    ForEach(folderOutline, id: \.folder.id) { row in
-                        folderSidebarRow(row)
-                    }
-                }
-            } header: {
-                NotionSectionLabel(text: "Folders")
-            }
-
-            Section {
                 Button { present(.settings) } label: {
-                    Label("Settings", systemImage: "gearshape")
-                        .font(.system(size: 14))
-                        .foregroundStyle(NotionTheme.inkSecondary)
+                    HStack(spacing: 9) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 13))
+                            .foregroundStyle(NotionTheme.inkSecondary)
+                            .frame(width: 18)
+                        Text("Settings")
+                            .font(NotionTheme.body)
+                            .foregroundStyle(NotionTheme.ink)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, minHeight: NotionTheme.sidebarRowHeight, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .notionSidebarRow()
             }
         }
         .listStyle(.sidebar)
@@ -210,19 +210,96 @@ struct LibraryView: View {
         .foregroundStyle(NotionTheme.ink)
         .tint(NotionTheme.accent)
         .safeAreaInset(edge: .top, spacing: 0) {
-            HStack(spacing: 9) {
-                Image(systemName: "pencil.and.outline")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(NotionTheme.inkSecondary)
-                Text("noty")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(NotionTheme.ink)
-                Spacer()
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Menu {
+                        Button("Settings", systemImage: "gearshape") {
+                            present(.settings)
+                        }
+                        if store.iCloudMirrorFolderURL != nil {
+                            Button("Sync now", systemImage: "arrow.triangle.2.circlepath") {
+                                Task { await store.syncICloudMirror() }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(NotionTheme.ink)
+                                Text("N")
+                                    .font(NotionTheme.font(11, weight: .bold))
+                                    .foregroundStyle(NotionTheme.canvas)
+                            }
+                            .frame(width: 22, height: 22)
+
+                            Text("Noty")
+                                .font(NotionTheme.font(14, weight: .semibold))
+                                .foregroundStyle(NotionTheme.ink)
+
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(NotionTheme.inkTertiary)
+                        }
+                        .padding(.horizontal, 2)
+                        .frame(height: 30)
+                    }
+                    .buttonStyle(NotionRowButtonStyle())
+                    .accessibilityLabel("Noty workspace menu")
+
+                    Spacer(minLength: 6)
+
+                    Menu {
+                        Button("New note", systemImage: "square.and.pencil") {
+                            createDocument(.note)
+                        }
+                        Button("New book", systemImage: "books.vertical") {
+                            createDocument(.book)
+                        }
+                        Button("New folder", systemImage: "folder.badge.plus") {
+                            present(.name(.newFolder(parentID: selectedFolderID)))
+                        }
+                        Divider()
+                        Button("Import from Files", systemImage: "square.and.arrow.down") {
+                            isImporting = true
+                        }
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(NotionIconButtonStyle())
+                    .accessibilityLabel("Create or import")
+                }
+
+                NotionSearchField(text: $searchText, placeholder: "Search")
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 12)
-            .padding(.bottom, 4)
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 10)
             .background(NotionTheme.sidebar)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Button {
+                createDocument(.note)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 18)
+                    Text("New page")
+                        .font(NotionTheme.font(13, weight: .medium))
+                    Spacer()
+                }
+                .foregroundStyle(NotionTheme.inkSecondary)
+                .padding(.horizontal, 14)
+                .frame(height: 38)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(NotionRowButtonStyle())
+            .background(NotionTheme.sidebar)
+            .overlay(alignment: .top) {
+                Rectangle().fill(NotionTheme.hairline).frame(height: 1)
+            }
         }
     }
 
@@ -231,7 +308,7 @@ struct LibraryView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     pageHeader
-                        .padding(.bottom, 26)
+                        .padding(.bottom, 28)
 
                     if selection == .trash {
                         if visibleTrashItems.isEmpty {
@@ -242,24 +319,24 @@ struct LibraryView: View {
                     } else {
                         if store.lastPersistenceError?.isEmpty == false {
                             persistenceWarning(store.lastPersistenceError ?? "")
-                                .padding(.bottom, 12)
+                                .padding(.bottom, 14)
                         }
 
                         if store.iCloudMirrorFolderURL == nil {
                             iCloudBackupStatus
-                                .padding(.bottom, 20)
+                                .padding(.bottom, 18)
                         } else {
                             iCloudBackupStatus
-                                .padding(.bottom, 14)
+                                .padding(.bottom, 12)
                         }
                         if oneDrive.isConnected || oneDrive.lastError != nil {
                             oneDriveBackupStatus
-                                .padding(.bottom, 14)
+                                .padding(.bottom, 12)
                         }
 
                         if !visibleFolders.isEmpty {
                             folderList
-                                .padding(.bottom, 24)
+                                .padding(.bottom, 28)
                         }
                         if !visibleDocuments.isEmpty {
                             documentList
@@ -269,16 +346,17 @@ struct LibraryView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 48)
-                .padding(.top, 38)
-                .padding(.bottom, 40)
-                .frame(maxWidth: 980, alignment: .leading)
+                .padding(.horizontal, 56)
+                .padding(.top, 34)
+                .padding(.bottom, 52)
+                .frame(maxWidth: NotionTheme.pageMaxWidth, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .background(NotionTheme.canvas)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, prompt: "Search library")
+            .toolbarBackground(NotionTheme.canvas, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     if selection == .trash {
@@ -287,15 +365,20 @@ struct LibraryView: View {
                                 deleteTarget = .emptyTrash
                             } label: {
                                 Label("Empty Trash", systemImage: "trash.slash")
+                                    .font(NotionTheme.control)
                             }
                         }
                     } else {
                         Button {
                             isImporting = true
                         } label: {
-                            Label("Import", systemImage: "square.and.arrow.down")
+                            Image(systemName: "square.and.arrow.down")
+                                .font(.system(size: 13, weight: .medium))
+                                .frame(width: 28, height: 28)
                         }
+                        .buttonStyle(NotionIconButtonStyle())
                         .help("Import PDF or Office documents from Files")
+                        .accessibilityLabel("Import")
 
                         Menu {
                             Button("New note", systemImage: "square.and.pencil") {
@@ -312,9 +395,18 @@ struct LibraryView: View {
                                 present(.settings)
                             }
                         } label: {
-                            Image(systemName: "ellipsis.circle")
+                            HStack(spacing: 5) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text("New")
+                                    .font(NotionTheme.control)
+                            }
+                            .foregroundStyle(NotionTheme.ink)
+                            .padding(.horizontal, 9)
+                            .frame(height: 30)
+                            .background(NotionTheme.rowHover, in: RoundedRectangle(cornerRadius: NotionTheme.radiusMedium))
                         }
-                        .accessibilityLabel("More library actions")
+                        .accessibilityLabel("New item")
                     }
                 }
             }
@@ -325,39 +417,48 @@ struct LibraryView: View {
     }
 
     private var pageHeader: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             if !(selection == .all && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                 HStack(spacing: 5) {
-                    Button("Library") { selection = .all }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(NotionTheme.inkTertiary)
+                    Button("Library") {
+                        selection = .all
+                        searchText = ""
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(NotionTheme.inkTertiary)
+
                     ForEach(ancestorFolders) { folder in
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 8, weight: .semibold))
                             .foregroundStyle(NotionTheme.inkTertiary)
-                        Button(folder.name) { selection = .folder(folder.id) }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(NotionTheme.inkTertiary)
+                        Button(folder.name) {
+                            selection = .folder(folder.id)
+                            searchText = ""
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(NotionTheme.inkTertiary)
                     }
+
                     if !ancestorFolders.isEmpty {
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 8, weight: .semibold))
                             .foregroundStyle(NotionTheme.inkTertiary)
                     }
                 }
-                .font(.system(size: 12))
+                .font(NotionTheme.caption)
                 .lineLimit(1)
+                .padding(.bottom, 4)
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(currentTitle)
                     .font(NotionTheme.pageTitle)
-                    .tracking(-0.6)
+                    .tracking(-0.75)
                     .foregroundStyle(NotionTheme.ink)
                 Spacer(minLength: 8)
                 if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text("\(visibleDocuments.count) results")
-                        .font(.system(size: 12))
+                        .font(NotionTheme.caption)
                         .foregroundStyle(NotionTheme.inkTertiary)
                 } else {
                     sortMenu
@@ -365,13 +466,8 @@ struct LibraryView: View {
             }
 
             Text(folderDescription)
-                .font(.system(size: 14))
+                .font(NotionTheme.bodySmall)
                 .foregroundStyle(NotionTheme.inkSecondary)
-
-            Rectangle()
-                .fill(NotionTheme.hairline)
-                .frame(height: 1)
-                .padding(.top, 10)
         }
     }
 
@@ -393,7 +489,7 @@ struct LibraryView: View {
                 Image(systemName: "arrow.up.arrow.down")
                 Text(sortOrder.title)
             }
-            .font(.system(size: 12, weight: .medium))
+            .font(NotionTheme.font(12, weight: .medium))
             .foregroundStyle(NotionTheme.inkSecondary)
         }
         .buttonStyle(.plain)
@@ -451,7 +547,7 @@ struct LibraryView: View {
                                     ? "Restore folder sync access"
                                     : (account.sharedFolderURL == nil ? "Sync your library with a folder" : "Account workspace found")
                             )
-                                .font(.system(size: 13, weight: .medium))
+                                .font(NotionTheme.font(13, weight: .medium))
                                 .foregroundStyle(NotionTheme.ink)
                             Text(
                                 isICloudSyncError
@@ -460,7 +556,7 @@ struct LibraryView: View {
                                         ? "Choose the same iCloud Drive folder on each device. Sign in to remember its setup across devices."
                                         : "Your Noty account has a saved iCloud workspace link. Open Settings to connect this device.")
                             )
-                                .font(.system(size: 12))
+                                .font(NotionTheme.caption)
                                 .foregroundStyle(isICloudSyncError ? NotionTheme.danger : NotionTheme.inkSecondary)
                                 .lineLimit(3)
                                 .multilineTextAlignment(.leading)
@@ -482,10 +578,10 @@ struct LibraryView: View {
                         .foregroundStyle(isICloudSyncError ? NotionTheme.danger : NotionTheme.inkSecondary)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Sync folder · \(store.iCloudMirrorFolderURL?.lastPathComponent ?? "Files folder")")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(NotionTheme.font(13, weight: .medium))
                             .foregroundStyle(NotionTheme.ink)
                         Text(displayICloudMirrorStatus(store.syncStatus))
-                            .font(.system(size: 12))
+                            .font(NotionTheme.caption)
                             .foregroundStyle(isICloudSyncError ? NotionTheme.danger : NotionTheme.inkSecondary)
                             .lineLimit(3)
                             .textSelection(.enabled)
@@ -570,36 +666,42 @@ struct LibraryView: View {
     }
 
     private var folderList: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             NotionSectionLabel(text: "Folders")
-                .padding(.bottom, 2)
+                .padding(.bottom, 3)
+
             ForEach(visibleFolders) { folder in
                 Button {
                     selection = .folder(folder.id)
                     searchText = ""
                     expandAncestors(of: folder.id)
                 } label: {
-                    HStack(spacing: 10) {
+                    HStack(spacing: 9) {
                         Image(systemName: "folder")
-                            .font(.system(size: 15))
+                            .font(.system(size: 13))
                             .foregroundStyle(NotionTheme.inkSecondary)
                             .frame(width: 22)
+
                         Text(folder.name)
-                            .font(.system(size: 14, weight: .medium))
+                            .font(NotionTheme.font(14, weight: .medium))
                             .foregroundStyle(NotionTheme.ink)
-                        Spacer()
+                            .lineLimit(1)
+
+                        Spacer(minLength: 8)
+
                         Text("\(folderItemCount(folder.id))")
-                            .font(.system(size: 12))
+                            .font(NotionTheme.caption)
                             .foregroundStyle(NotionTheme.inkTertiary)
+
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: 9, weight: .semibold))
                             .foregroundStyle(NotionTheme.inkTertiary)
                     }
-                    .padding(.horizontal, 8)
-                    .frame(minHeight: 38)
+                    .padding(.horizontal, 7)
+                    .frame(minHeight: 36)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(NotionRowButtonStyle())
                 .contextMenu {
                     Button("Rename", systemImage: "pencil") {
                         present(.name(.renameFolder(folder.id)))
@@ -611,60 +713,60 @@ struct LibraryView: View {
                         deleteTarget = .folder(folder.id)
                     }
                 }
-                Rectangle().fill(NotionTheme.hairline).frame(height: 1)
             }
         }
     }
 
     private var documentList: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack {
                 NotionSectionLabel(text: "Pages")
                 Spacer()
                 Text("\(visibleDocuments.count)")
-                    .font(.system(size: 12))
+                    .font(NotionTheme.caption)
                     .foregroundStyle(NotionTheme.inkTertiary)
             }
-            .padding(.bottom, 2)
+            .padding(.bottom, 3)
 
             ForEach(visibleDocuments) { document in
-                HStack(spacing: 8) {
+                HStack(spacing: 4) {
                     NavigationLink(value: document.id) {
-                        HStack(spacing: 11) {
-                            DocumentPreview(document: document)
-                                .frame(width: 42, height: 56)
-                            VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 10) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(NotionTheme.rowHover)
+                                Image(systemName: documentSymbol(document.kind))
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundStyle(NotionTheme.inkSecondary)
+                            }
+                            .frame(width: 30, height: 30)
+
+                            VStack(alignment: .leading, spacing: 2) {
                                 Text(document.title)
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(NotionTheme.font(14, weight: .medium))
                                     .foregroundStyle(NotionTheme.ink)
                                     .lineLimit(1)
+
                                 if let caption = searchCaption(for: document) {
                                     Text(caption)
-                                        .font(.system(size: 11.5))
+                                        .font(NotionTheme.caption)
                                         .foregroundStyle(NotionTheme.inkTertiary)
                                         .lineLimit(1)
                                 } else {
-                                    HStack(spacing: 5) {
-                                        Text(documentKindLabel(document.kind))
-                                        Text("·")
-                                        Text("\(document.pages.count) \(document.pages.count == 1 ? "page" : "pages")")
-                                        Text("·")
-                                        Text("Edited \(document.updatedAt.formatted(date: .abbreviated, time: .omitted))")
-                                    }
-                                    .font(.system(size: 11.5))
-                                    .foregroundStyle(NotionTheme.inkTertiary)
-                                    .lineLimit(1)
+                                    Text("\(documentKindLabel(document.kind)) · \(document.pages.count) \(document.pages.count == 1 ? "page" : "pages") · Edited \(document.updatedAt.formatted(date: .abbreviated, time: .omitted))")
+                                        .font(NotionTheme.caption)
+                                        .foregroundStyle(NotionTheme.inkTertiary)
+                                        .lineLimit(1)
                                 }
                             }
+
                             Spacer(minLength: 10)
-                            Image(systemName: "arrow.up.left")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(NotionTheme.inkTertiary.opacity(0.75))
                         }
-                        .frame(minHeight: 62)
+                        .padding(.horizontal, 7)
+                        .frame(minHeight: 46)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(NotionRowButtonStyle())
                     .simultaneousGesture(TapGesture().onEnded { recordRecent(document.id) })
                     .contextMenu {
                         Button(isFavorite(document.id) ? "Remove from Favorites" : "Add to Favorites", systemImage: "star") {
@@ -685,15 +787,14 @@ struct LibraryView: View {
                         toggleFavorite(document.id)
                     } label: {
                         Image(systemName: isFavorite(document.id) ? "star.fill" : "star")
-                            .font(.system(size: 13))
+                            .font(.system(size: 12))
                             .foregroundStyle(isFavorite(document.id) ? NotionTheme.inkSecondary : NotionTheme.inkTertiary)
-                            .frame(width: 32, height: 32)
+                            .frame(width: 30, height: 30)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(NotionIconButtonStyle())
                     .accessibilityLabel(isFavorite(document.id) ? "Remove from Favorites" : "Add to Favorites")
                 }
-                Rectangle().fill(NotionTheme.hairline).frame(height: 1)
             }
         }
     }
@@ -846,15 +947,21 @@ struct LibraryView: View {
 
             ForEach(visibleTrashItems) { item in
                 HStack(spacing: 12) {
-                    DocumentPreview(document: item.document)
-                        .frame(width: 42, height: 56)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(NotionTheme.rowHover)
+                        Image(systemName: documentSymbol(item.document.kind))
+                            .font(.system(size: 13))
+                            .foregroundStyle(NotionTheme.inkSecondary)
+                    }
+                    .frame(width: 30, height: 30)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(item.document.title)
-                            .font(.system(size: 14, weight: .medium))
+                            .font(NotionTheme.font(14, weight: .medium))
                             .foregroundStyle(NotionTheme.ink)
                             .lineLimit(1)
                         Text("Deleted \(item.deletedAt.formatted(date: .abbreviated, time: .shortened)) · \(item.document.pages.count) \(item.document.pages.count == 1 ? "page" : "pages")")
-                            .font(.system(size: 11.5))
+                            .font(NotionTheme.caption)
                             .foregroundStyle(NotionTheme.inkTertiary)
                             .lineLimit(1)
                     }
@@ -872,7 +979,7 @@ struct LibraryView: View {
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Permanently delete \(item.document.title)")
                 }
-                .frame(minHeight: 64)
+                .frame(minHeight: 46)
                 .contextMenu {
                     Button("Restore", systemImage: "arrow.uturn.backward") {
                         store.restoreTrashedDocument(id: item.id)
@@ -927,18 +1034,20 @@ struct LibraryView: View {
     private func sidebarDestination(_ title: String, symbol: String, count: Int) -> some View {
         HStack(spacing: 9) {
             Image(systemName: symbol)
-                .font(.system(size: 14))
+                .font(.system(size: 13))
                 .foregroundStyle(NotionTheme.inkSecondary)
                 .frame(width: 18)
             Text(title)
-                .font(.system(size: 14))
+                .font(NotionTheme.body)
                 .foregroundStyle(NotionTheme.ink)
             Spacer(minLength: 4)
-            Text(count.formatted())
-                .font(.system(size: 11))
-                .foregroundStyle(NotionTheme.inkTertiary)
+            if count > 0 {
+                Text(count.formatted())
+                    .font(NotionTheme.captionSmall)
+                    .foregroundStyle(NotionTheme.inkTertiary)
+            }
         }
-        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: NotionTheme.sidebarRowHeight, alignment: .leading)
         .contentShape(Rectangle())
     }
 
@@ -974,14 +1083,14 @@ struct LibraryView: View {
                         .font(.system(size: 13))
                         .foregroundStyle(NotionTheme.inkSecondary)
                     Text(row.folder.name)
-                        .font(.system(size: 13.5))
+                        .font(NotionTheme.font(13))
                         .foregroundStyle(NotionTheme.ink)
                         .lineLimit(1)
                     Spacer(minLength: 3)
                     let count = store.documents.filter { $0.folderID == row.folder.id }.count
                     if count > 0 {
                         Text(count.formatted())
-                            .font(.system(size: 11))
+                            .font(NotionTheme.captionSmall)
                             .foregroundStyle(NotionTheme.inkTertiary)
                     }
                 }
@@ -1339,10 +1448,14 @@ private struct NameEntrySheet: View {
         NavigationStack {
             Form {
                 TextField(placeholder, text: $name)
+                    .font(NotionTheme.body)
                     .focused($isFocused)
                     .submitLabel(.done)
                     .onSubmit(save)
             }
+            .scrollContentBackground(.hidden)
+            .background(NotionTheme.canvas)
+            .tint(NotionTheme.accent)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1423,7 +1536,11 @@ private struct MoveDocumentSheet: View {
                     }
                 }
             }
+            .font(NotionTheme.body)
             .buttonStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(NotionTheme.canvas)
+            .tint(NotionTheme.accent)
             .navigationTitle("Move to")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1461,11 +1578,11 @@ private struct LibrarySettingsView: View {
                 if account.isAuthenticated {
                     LabeledContent("Signed in", value: account.email ?? "Noty account")
                     Text(account.status)
-                        .font(.footnote)
+                        .font(NotionTheme.caption)
                         .foregroundStyle(.secondary)
                     if let lastError = account.lastError {
                         Text(lastError)
-                            .font(.footnote)
+                            .font(NotionTheme.caption)
                             .foregroundStyle(.red)
                             .textSelection(.enabled)
                     }
@@ -1501,7 +1618,7 @@ private struct LibrarySettingsView: View {
                         ProgressView()
                     }
                     Text(account.lastError ?? account.status)
-                        .font(.footnote)
+                        .font(NotionTheme.caption)
                         .foregroundStyle(account.lastError == nil ? NotionTheme.inkSecondary : NotionTheme.danger)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -1516,9 +1633,9 @@ private struct LibrarySettingsView: View {
                     Label {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("A change could not be saved")
-                                .font(.subheadline.weight(.semibold))
+                                .font(NotionTheme.font(13, weight: .semibold))
                             Text(persistenceError)
-                                .font(.footnote)
+                                .font(NotionTheme.caption)
                                 .textSelection(.enabled)
                         }
                     } icon: {
@@ -1532,7 +1649,7 @@ private struct LibrarySettingsView: View {
                 LabeledContent("Connected folder", value: store.iCloudMirrorFolderURL?.lastPathComponent ?? "Not connected")
 
                 Text("Use the same writable folder on every device. Noty keeps an editable library in that folder and merges newer changes back into the local library.")
-                    .font(.footnote)
+                    .font(NotionTheme.caption)
                     .foregroundStyle(.secondary)
 
                 Button(store.iCloudMirrorFolderURL == nil ? "Choose sync folder" : "Choose another sync folder", systemImage: "folder.badge.plus") {
@@ -1547,10 +1664,10 @@ private struct LibrarySettingsView: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Folder status")
-                        .font(.subheadline)
+                        .font(NotionTheme.bodySmall)
                         .foregroundStyle(.secondary)
                     Text(displayICloudMirrorStatus(store.syncStatus))
-                        .font(.footnote)
+                        .font(NotionTheme.caption)
                         .foregroundStyle(isICloudStatusError ? NotionTheme.danger : NotionTheme.inkSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
@@ -1559,7 +1676,7 @@ private struct LibrarySettingsView: View {
                 Divider()
 
                 Text("Optional shared folder link")
-                    .font(.subheadline.weight(.semibold))
+                    .font(NotionTheme.font(13, weight: .semibold))
 
                 TextField("https://www.icloud.com/…", text: $sharedFolderLinkDraft)
                     .textInputAutocapitalization(.never)
@@ -1592,7 +1709,7 @@ private struct LibrarySettingsView: View {
                 }
 
                 Text(account.status)
-                    .font(.footnote)
+                    .font(NotionTheme.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } header: {
@@ -1604,11 +1721,11 @@ private struct LibrarySettingsView: View {
             Section {
                 LabeledContent("Selected Files folder", value: oneDrive.mirrorFolderName ?? "Not selected")
                 Text(oneDrive.syncStatus)
-                    .font(.footnote)
+                    .font(NotionTheme.caption)
                     .foregroundStyle(.secondary)
                 if let lastError = oneDrive.lastError {
                     Text(lastError)
-                        .font(.footnote)
+                        .font(NotionTheme.caption)
                         .foregroundStyle(.red)
                         .textSelection(.enabled)
                 }
@@ -1625,7 +1742,7 @@ private struct LibrarySettingsView: View {
                     }
                 }
                 Text("Sign in with Microsoft in the official OneDrive app, then select its writable folder in Files. Noty saves PDF copies after edits while it is open and when you return to it. Deleted Noty pages keep their saved PDF copies here. The selected Files provider may upload them later.")
-                    .font(.footnote)
+                    .font(NotionTheme.caption)
                     .foregroundStyle(.secondary)
             } header: {
                 Text("OneDrive")
@@ -1633,8 +1750,14 @@ private struct LibrarySettingsView: View {
                 Text("Noty stores permission for the selected Files folder and does not handle your Microsoft account credentials. Disconnecting removes permission but leaves saved copies in place. The selected location may be provided by another Files provider.")
             }
         }
+        .font(NotionTheme.bodySmall)
+        .scrollContentBackground(.hidden)
+        .background(NotionTheme.canvas)
+        .tint(NotionTheme.accent)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(NotionTheme.canvas, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }
