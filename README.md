@@ -1,6 +1,6 @@
 # noty
 
-A quiet, Apple-device notebook for class notes, books, and writing directly on PDFs. Built with SwiftUI, PencilKit, and PDFKit. The app keeps its editable library on the iPad and can copy it to a folder you choose in iCloud Drive. It can also keep rendered PDF copies in a OneDrive folder exposed through Files.
+A quiet, Apple-device notebook for class notes, books, and writing directly on PDFs. Built with SwiftUI, PencilKit, and PDFKit. The app keeps a local editable library, can synchronize that library through a user-selected iCloud Drive/Files folder, and now has a real Supabase-backed Noty account for cross-device workspace discovery. It can also keep rendered PDF copies in a OneDrive folder exposed through Files.
 
 ## Open and run
 
@@ -22,13 +22,15 @@ For installation on a physical iPad, select your Apple team in Xcode under **Sig
 
 Open **Settings → Sync with Folder** and choose a writable folder in Files. For multi-device use, choose an iCloud Drive folder and select that same folder on each device. New setups use a `Noty Sync` subfolder; existing `Noty Backup` folders remain compatible. Noty stores versioned editable document packages there, merges newer changes into the local library, keeps deletion tombstones, saves after edits, checks again when the app becomes active, and requests iPadOS background-processing retry opportunities.
 
-### Smooth setup on your other Apple devices
+### Noty account + setup on another device
 
-For your own devices on the same Apple Account, keep the iCloud Drive folder private and select the same folder once on each device. The **Shared folder link** field is optional: use it when you want easier discovery or need to invite another Apple Account. Prefer **People You Choose** where possible. If you deliberately use **Anyone with the link → Can make changes**, treat the URL like a secret because anyone who obtains it can modify the folder. Noty stores only that optional discovery link as a synchronizable iCloud Keychain item. Apple documents `kSecAttrSynchronizable` as synchronizing keychain items to the user's other devices through iCloud.
+Noty now has a real account backend using **Supabase Auth + Postgres**. Create an account or sign in under **Settings → Noty Account**. Authentication sessions are stored in the device Keychain, while Postgres stores the account's sync-workspace metadata (currently the iCloud/shared-folder link and folder display name). Row Level Security restricts each account to its own profile row.
 
-On another iPhone or iPad using the same Apple Account with iCloud Keychain enabled, open Noty Settings and tap **Check iCloud Keychain for a link**. The saved link can appear without typing or remembering it. Tap **Open saved shared-folder link** to open/join the folder, then **Choose sync folder** and select it once in Files. iOS intentionally makes the actual security-scoped Files permission device-local, so Noty cannot silently transfer that grant between devices.
+After choosing an iCloud Drive sync folder, optionally paste its sharing URL and tap **Save link to my Noty account**. On another iPhone or iPad, sign into the same Noty account: the workspace link is downloaded from the backend automatically. Open the saved link if needed, then choose that folder once in Files. iOS intentionally makes the actual security-scoped Files permission device-local, so no backend can silently transfer that grant between devices.
 
-No Noty account or server is required for this same-Apple-Account setup, and the backend never receives your notebooks because there is no Noty backend in this path. If another person uses a different Apple Account, send them the folder's normal iCloud sharing link; after joining it they still select the folder once in Noty.
+For your own private notes, prefer a private folder or **People You Choose** sharing. If you deliberately use **Anyone with the link → Can make changes**, treat that URL like a secret because anyone who obtains it can modify the shared folder.
+
+The account system is intentionally cross-platform. A future Noty web client can use the same Supabase identity and workspace records. However, an iCloud Drive share URL is not a general-purpose browser storage API; true web editing will require a web-accessible document replica (for example Supabase Storage/database records) linked to the same Noty workspace. The current backend stores metadata, not notebook contents.
 
 The in-app status confirms when Noty has read or written the selected Files folder. iPadOS and the File Provider control when those changes actually reach iCloud. Before deleting the app or wiping a device, verify the `Noty Sync` (or legacy `Noty Backup`) data is present in Files.
 
