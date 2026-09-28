@@ -124,4 +124,32 @@ final class NotyICloudMirrorTests: XCTestCase {
         XCTAssertFalse(finalStore.documents.contains(where: { $0.id == imported.id }))
         XCTAssertFalse(finalStore.syncStatus.contains("failed"), finalStore.syncStatus)
     }
+
+    @MainActor
+    func testICloudFolderBookmarkRestoresAfterStoreRelaunch() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NotyMirrorBookmarkQA-\(UUID().uuidString)", isDirectory: true)
+        let libraryURL = root.appendingPathComponent("library", isDirectory: true)
+        let selectedCloudFolder = root.appendingPathComponent("selected-cloud-folder", isDirectory: true)
+        try FileManager.default.createDirectory(at: selectedCloudFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = NotyStore(storageDirectoryURL: libraryURL)
+        _ = store.createDocument(title: "Persisted backup", kind: .note, folderID: nil)
+        try store.configureICloudMirror(folderURL: selectedCloudFolder)
+        await store.syncICloudMirror()
+        XCTAssertFalse(store.syncStatus.localizedCaseInsensitiveContains("failed"), store.syncStatus)
+
+        let reopenedStore = NotyStore(storageDirectoryURL: libraryURL)
+        let reopenedFolder = try XCTUnwrap(reopenedStore.iCloudMirrorFolderURL)
+        XCTAssertEqual(
+            reopenedFolder.standardizedFileURL.path,
+            selectedCloudFolder.standardizedFileURL.path
+        )
+
+        await reopenedStore.syncICloudMirror()
+        XCTAssertFalse(reopenedStore.syncStatus.localizedCaseInsensitiveContains("failed"), reopenedStore.syncStatus)
+        XCTAssertEqual(reopenedStore.documents.first?.title, "Persisted backup")
+    }
+
 }
