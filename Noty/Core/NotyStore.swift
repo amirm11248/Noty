@@ -59,7 +59,7 @@ struct NotyStoreManifest: Codable {
 final class NotyStore {
     private(set) var folders: [NotyFolder] = []
     private(set) var documents: [NotyDocument] = []
-    private(set) var syncStatus = "iCloud Drive backup not configured"
+    private(set) var syncStatus = "Folder sync not configured"
     private(set) var iCloudMirrorFolderURL: URL?
     private(set) var isSyncingICloudMirror = false
     private(set) var lastPersistenceError: String?
@@ -778,7 +778,7 @@ final class NotyStore {
 
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: folderURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            syncStatus = "The selected iCloud Drive location is not available. Select a folder again."
+            syncStatus = "The selected sync location is not available. Select the folder again."
             throw NotyStoreError.iCloudFolderUnavailable
         }
 
@@ -786,7 +786,7 @@ final class NotyStore {
             let bookmark = try persistentFolderBookmark(for: folderURL)
             try bookmark.write(to: mirrorBookmarkURL, options: .atomic)
             iCloudMirrorFolderURL = folderURL
-            syncStatus = "Backup folder selected. Checking for a saved Noty library…"
+            syncStatus = "Sync folder selected. Checking for changes…"
             lastOperationMessage = nil
             scheduleICloudSyncDebounced()
         } catch {
@@ -800,11 +800,11 @@ final class NotyStore {
         mirrorDebounceTask?.cancel()
         mirrorDebounceTask = nil
         guard let folderURL = iCloudMirrorFolderURL else {
-            syncStatus = "Select an iCloud Drive folder to enable backup and recovery."
+            syncStatus = "Select a writable folder in Files to enable multi-device sync and recovery."
             return
         }
         isSyncingICloudMirror = true
-        syncStatus = "Checking iCloud Drive backup…"
+        syncStatus = "Checking sync folder for changes…"
         lastOperationMessage = nil
         defer { isSyncingICloudMirror = false }
 
@@ -819,7 +819,7 @@ final class NotyStore {
             guard localRevision == revisionAtStart else {
                 result.rollbackInstalledAssets()
                 scheduleICloudSyncDebounced()
-                syncStatus = "A newer local change was saved during backup. Noty will save it next."
+                syncStatus = "A newer local change was saved during sync. Noty will sync it next."
                 return
             }
             folders = result.manifest.folders
@@ -842,12 +842,12 @@ final class NotyStore {
                     }
                 }
             }
-            syncStatus = "Saved to the selected iCloud Drive folder at \(Self.syncTimeString(result.syncedAt)); iPadOS manages upload."
+            syncStatus = "Saved to the selected sync folder at \(Self.syncTimeString(result.syncedAt)); iPadOS manages provider upload."
             if let note = result.note {
                 lastOperationMessage = note
             }
         } catch {
-            syncStatus = "iCloud Drive sync failed: \(error.localizedDescription)"
+            syncStatus = "Folder sync failed: \(error.localizedDescription)"
             lastOperationMessage = "Your local Noty library is still saved on this iPad."
         }
     }
@@ -990,13 +990,13 @@ final class NotyStore {
                 }
                 let refreshedBookmark = try persistentFolderBookmark(for: resolved.url)
                 try refreshedBookmark.write(to: mirrorBookmarkURL, options: .atomic)
-                syncStatus = "iCloud Drive backup folder access refreshed. Sync to check for recovery data."
+                syncStatus = "Sync folder access refreshed. Checking can resume."
             } else {
-                syncStatus = "iCloud Drive backup folder ready. Sync to check for recovery data."
+                syncStatus = "Sync folder ready. Sync to check for changes."
             }
         } catch {
             iCloudMirrorFolderURL = nil
-            syncStatus = "iCloud Drive access expired. Select the backup folder again in Files."
+            syncStatus = "Sync folder access expired. Select the same folder again in Files."
         }
     }
 
