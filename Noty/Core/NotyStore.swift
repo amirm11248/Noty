@@ -482,8 +482,14 @@ final class NotyStore {
 
             let drawing = self.drawing(documentID: documentID, pageID: pageID)
             if !drawing.strokes.isEmpty {
-                let transform = CGAffineTransform(translationX: offsetX, y: offsetY)
-                    .scaledBy(x: uniformScale, y: uniformScale)
+                let transform = CGAffineTransform(
+                    a: uniformScale,
+                    b: 0,
+                    c: 0,
+                    d: uniformScale,
+                    tx: offsetX,
+                    ty: offsetY
+                )
                 do {
                     let destination = drawingURL(documentID: documentID, pageID: pageID)
                     try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
