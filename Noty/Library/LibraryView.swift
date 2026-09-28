@@ -212,22 +212,39 @@ struct LibraryView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(NotionTheme.ink)
-                        Text("N")
-                            .font(NotionTheme.font(11, weight: .bold))
-                            .foregroundStyle(NotionTheme.canvas)
+                    Menu {
+                        Button("Settings", systemImage: "gearshape") {
+                            present(.settings)
+                        }
+                        if store.iCloudMirrorFolderURL != nil {
+                            Button("Sync now", systemImage: "arrow.triangle.2.circlepath") {
+                                Task { await store.syncICloudMirror() }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(NotionTheme.ink)
+                                Text("N")
+                                    .font(NotionTheme.font(11, weight: .bold))
+                                    .foregroundStyle(NotionTheme.canvas)
+                            }
+                            .frame(width: 22, height: 22)
+
+                            Text("Noty")
+                                .font(NotionTheme.font(14, weight: .semibold))
+                                .foregroundStyle(NotionTheme.ink)
+
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(NotionTheme.inkTertiary)
+                        }
+                        .padding(.horizontal, 2)
+                        .frame(height: 30)
                     }
-                    .frame(width: 22, height: 22)
-
-                    Text("Noty")
-                        .font(NotionTheme.font(14, weight: .semibold))
-                        .foregroundStyle(NotionTheme.ink)
-
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(NotionTheme.inkTertiary)
+                    .buttonStyle(NotionRowButtonStyle())
+                    .accessibilityLabel("Noty workspace menu")
 
                     Spacer(minLength: 6)
 
@@ -1431,10 +1448,14 @@ private struct NameEntrySheet: View {
         NavigationStack {
             Form {
                 TextField(placeholder, text: $name)
+                    .font(NotionTheme.body)
                     .focused($isFocused)
                     .submitLabel(.done)
                     .onSubmit(save)
             }
+            .scrollContentBackground(.hidden)
+            .background(NotionTheme.canvas)
+            .tint(NotionTheme.accent)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1515,7 +1536,11 @@ private struct MoveDocumentSheet: View {
                     }
                 }
             }
+            .font(NotionTheme.body)
             .buttonStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(NotionTheme.canvas)
+            .tint(NotionTheme.accent)
             .navigationTitle("Move to")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1552,9 +1577,9 @@ private struct LibrarySettingsView: View {
                     Label {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("A change could not be saved")
-                                .font(.subheadline.weight(.semibold))
+                                .font(NotionTheme.font(13, weight: .semibold))
                             Text(persistenceError)
-                                .font(.footnote)
+                                .font(NotionTheme.caption)
                                 .textSelection(.enabled)
                         }
                     } icon: {
@@ -1568,7 +1593,7 @@ private struct LibrarySettingsView: View {
                 LabeledContent("Connected folder", value: store.iCloudMirrorFolderURL?.lastPathComponent ?? "Not connected")
 
                 Text("Use the same writable folder on every device. Noty keeps an editable library in that folder and merges newer changes back into the local library.")
-                    .font(.footnote)
+                    .font(NotionTheme.caption)
                     .foregroundStyle(.secondary)
 
                 Button(store.iCloudMirrorFolderURL == nil ? "Choose sync folder" : "Choose another sync folder", systemImage: "folder.badge.plus") {
@@ -1583,10 +1608,10 @@ private struct LibrarySettingsView: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Folder status")
-                        .font(.subheadline)
+                        .font(NotionTheme.bodySmall)
                         .foregroundStyle(.secondary)
                     Text(displayICloudMirrorStatus(store.syncStatus))
-                        .font(.footnote)
+                        .font(NotionTheme.caption)
                         .foregroundStyle(isICloudStatusError ? NotionTheme.danger : NotionTheme.inkSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
@@ -1595,7 +1620,7 @@ private struct LibrarySettingsView: View {
                 Divider()
 
                 Text("Optional shared folder link")
-                    .font(.subheadline.weight(.semibold))
+                    .font(NotionTheme.font(13, weight: .semibold))
 
                 TextField("https://www.icloud.com/…", text: $sharedFolderLinkDraft)
                     .textInputAutocapitalization(.never)
@@ -1626,7 +1651,7 @@ private struct LibrarySettingsView: View {
                 }
 
                 Text(folderSyncProfile.status)
-                    .font(.footnote)
+                    .font(NotionTheme.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } header: {
@@ -1638,11 +1663,11 @@ private struct LibrarySettingsView: View {
             Section {
                 LabeledContent("Selected Files folder", value: oneDrive.mirrorFolderName ?? "Not selected")
                 Text(oneDrive.syncStatus)
-                    .font(.footnote)
+                    .font(NotionTheme.caption)
                     .foregroundStyle(.secondary)
                 if let lastError = oneDrive.lastError {
                     Text(lastError)
-                        .font(.footnote)
+                        .font(NotionTheme.caption)
                         .foregroundStyle(.red)
                         .textSelection(.enabled)
                 }
@@ -1659,7 +1684,7 @@ private struct LibrarySettingsView: View {
                     }
                 }
                 Text("Sign in with Microsoft in the official OneDrive app, then select its writable folder in Files. Noty saves PDF copies after edits while it is open and when you return to it. Deleted Noty pages keep their saved PDF copies here. The selected Files provider may upload them later.")
-                    .font(.footnote)
+                    .font(NotionTheme.caption)
                     .foregroundStyle(.secondary)
             } header: {
                 Text("OneDrive")
