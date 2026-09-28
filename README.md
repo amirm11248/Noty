@@ -10,10 +10,11 @@ For installation on a physical iPad, select your Apple team in Xcode under **Sig
 
 ## Using noty
 
-- Create **notes** or **books**, add blank, ruled, grid, or dotted pages, bookmark important pages, and organize documents in nested folders.
+- Create **notes** or **books** with blank, ruled, narrow-ruled, grid, small-grid, dotted, or Cornell paper. Each page can use its own color, paper size (A4/A5/Letter/Legal/Square/4:3/16:9), and portrait or landscape orientation.
 - Import **PDF** or **DOCX** from Files, or open a shared file from another app. Draw over imported pages with Apple Pencil or touch, pinch-zoom the page, and add movable rich-text boxes.
 - Add photos from the iPad photo library as page objects, then move, resize, rotate, or delete them. Ink remains on top of images in exported documents.
 - Reorder, duplicate, bookmark, or delete pages in the thumbnail rail. Deleted documents move to **Trash**, where they can be restored or permanently removed.
+- Present a document full-screen with swipe/page navigation, an on-screen laser pointer, hidden controls, and a temporary black-screen mode.
 - Export the full document as a **PDF** or the current page as a high-resolution **PNG** from the editor’s share button. Exports remain in **On My iPad → noty → Noty Exports**.
 - A modern `.docx` is rendered offline to PDF when possible. If its layout cannot be rendered, noty uses a text conversion and tells you that formatting was simplified. It always retains the original file. Legacy `.doc` cannot be converted reliably offline; noty retains it and creates an editable explanation page. For exact legacy Word layout, export a PDF from Word or Pages first.
 
