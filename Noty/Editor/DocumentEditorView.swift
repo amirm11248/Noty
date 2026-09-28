@@ -228,7 +228,7 @@ struct DocumentEditorView: View {
                                 isLaserPointerEnabled.toggle()
                                 if !isLaserPointerEnabled { presenterLaserLocation = nil }
                             } label: {
-                                Image(systemName: isLaserPointerEnabled ? "laser.burst" : "dot.circle.and.hand.point.up.left.fill")
+                                Image(systemName: isLaserPointerEnabled ? "scope" : "hand.point.up.left.fill")
                                     .frame(width: 32, height: 32)
                             }
                             .foregroundStyle(isLaserPointerEnabled ? Color.red : Color.white)
@@ -372,6 +372,22 @@ struct DocumentEditorView: View {
             }
             .buttonStyle(NotionIconButtonStyle())
             .accessibilityLabel("Add page")
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isPresenterControlsVisible = true
+                    isLaserPointerEnabled = false
+                    presenterLaserLocation = nil
+                    isPresenterBlackout = false
+                    isPresentationMode = true
+                }
+            } label: {
+                Image(systemName: "play.rectangle")
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(NotionIconButtonStyle())
+            .accessibilityLabel("Present document")
 
             Menu {
                 Button {
