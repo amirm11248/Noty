@@ -1,6 +1,4 @@
 import BackgroundTasks
-import FontInter
-import FontKit
 import SwiftUI
 import UIKit
 
@@ -13,9 +11,8 @@ struct NotyApp: App {
     @State private var importAlertMessage: String?
 
     init() {
-        // Notion's default product typography is Inter. Register it once before
-        // any SwiftUI view resolves the shared NotionTheme fonts.
-        FontKit.registerInter()
+        // Register the Inter resources before SwiftUI resolves shared theme fonts.
+        NotionFontRegistrar.registerInter()
     }
 
     var body: some Scene {
