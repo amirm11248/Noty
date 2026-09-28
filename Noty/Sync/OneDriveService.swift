@@ -52,11 +52,7 @@ final class OneDriveService {
             guard values.isDirectory == true else {
                 throw OneDriveError.notAFolder
             }
-            let bookmark = try folderURL.bookmarkData(
-                options: [],
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil
-            )
+            let bookmark = try Self.persistentFolderBookmark(for: folderURL)
             UserDefaults.standard.set(bookmark, forKey: bookmarkKey)
             mirrorFolderURL = folderURL
             mirrorFolderName = folderURL.lastPathComponent
@@ -216,27 +212,18 @@ final class OneDriveService {
         }
 
         do {
-            var isStale = false
-            let url = try URL(
-                resolvingBookmarkData: bookmark,
-                options: [],
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            )
+            let resolved = try Self.resolvePersistentFolderBookmark(bookmark)
+            let url = resolved.url
             mirrorFolderURL = url
             mirrorFolderName = url.lastPathComponent
-            if isStale {
+            if resolved.isStale {
                 let didStartAccessing = url.startAccessingSecurityScopedResource()
                 defer {
                     if didStartAccessing {
                         url.stopAccessingSecurityScopedResource()
                     }
                 }
-                let refreshedBookmark = try url.bookmarkData(
-                    options: [],
-                    includingResourceValuesForKeys: nil,
-                    relativeTo: nil
-                )
+                let refreshedBookmark = try Self.persistentFolderBookmark(for: url)
                 UserDefaults.standard.set(refreshedBookmark, forKey: bookmarkKey)
             }
             return url
@@ -273,6 +260,27 @@ final class OneDriveService {
 
     private func folderMetadataKey(prefix: String, folderURL: URL) -> String {
         prefix + folderURL.standardizedFileURL.path
+    }
+
+    /// On iOS, persist the directory-picker grant as a minimal bookmark so a
+    /// File Provider folder (including OneDrive) can be reopened after relaunch.
+    private static func persistentFolderBookmark(for url: URL) throws -> Data {
+        try url.bookmarkData(
+            options: [.minimalBookmark],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+    }
+
+    private static func resolvePersistentFolderBookmark(_ data: Data) throws -> (url: URL, isStale: Bool) {
+        var isStale = false
+        let url = try URL(
+            resolvingBookmarkData: data,
+            options: [],
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        )
+        return (url, isStale)
     }
 
     private static func coordinatedWrite(_ data: Data, to url: URL) throws {
