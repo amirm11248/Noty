@@ -4,9 +4,9 @@ Native iPadOS 18+ SwiftUI app. The project is generated from `project.yml` with 
 
 ## Ownership
 
-- `Noty/Core/`: shared models, local store, import and iCloud Drive mirror.
+- `Noty/Core/`: shared models, local store, import and the editable Files-folder synchronizer.
 - `Noty/Editor/`: PencilKit page editor, page actions, text boxes, PDF and image export.
-- `Noty/Library/` and `Noty/Sync/OneDriveService.swift`: library UI and OneDrive Files-provider PDF mirror.
+- `Noty/Library/` and `Noty/Sync/OneDriveService.swift`: library UI, OneDrive Files-provider PDF mirror, and synchronizable iCloud Keychain metadata for shared-folder discovery.
 - Root agent owns `project.yml`, `Noty/NotyApp.swift`, build, run and integration review.
 
 ## Shared API
@@ -62,4 +62,4 @@ Library agent provides `LibraryView(store: NotyStore, oneDrive: OneDriveService)
 
 1. Reliable local persistence, import PDF/DOCX, folder/book creation, PencilKit writing, page controls, rich text boxes, photo objects, page bookmarks, restorable Trash and export.
 2. Minimal Notion-inspired visual language: warm white, ink grey, quiet borders, clear typography, simple iconography; comfortable on iPad and Apple Pencil.
-3. Cloud mirrors report real status and errors. iCloud Drive and OneDrive folder access is user selected in Files and persisted using iOS directory bookmarks that resolve back to security-scoped URLs. Foreground edits are mirrored promptly and `com.malik.noty.sync` is registered as a BGProcessingTask fallback for later retry opportunities. DOC/DOCX conversion stays on-device because the user's school blocks Microsoft Graph. Do not claim guaranteed background timing or provider upload timing; iPadOS schedules both.
+3. **Sync with Folder** is the editable multi-device path. The user selects the same writable iCloud Drive/File Provider folder on each device; iOS directory bookmarks persist each device's local security-scoped grant. An optional shared-folder discovery URL is stored with `kSecAttrSynchronizable` in iCloud Keychain so the user's other Apple devices can recover the link without a separate Noty account. Never serialize or upload the security-scoped bookmark to a backend: the Files grant is device-local and each device must approve it once. Foreground edits are synchronized promptly and `com.malik.noty.sync` is registered as a BGProcessingTask fallback. OneDrive remains a separate rendered-PDF mirror. Do not claim guaranteed background or provider-upload timing; iPadOS schedules both.
