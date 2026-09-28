@@ -1,4 +1,5 @@
-import FontKit
+import CoreText
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -146,19 +147,21 @@ enum NotionTheme {
         case bold
     }
 
-    /// Notion's product UI uses Inter. Keeping all UI type behind this helper
-    /// prevents one-off SF fonts from slowly breaking the visual rhythm.
+    /// Notion uses a tuned NotionInter build. Inter is the closest
+    /// redistribution-safe match, so all chrome goes through one family.
     static func font(_ size: CGFloat, weight: TypefaceWeight = .regular) -> Font {
+        let postScriptName: String
         switch weight {
         case .regular:
-            return .inter(.regular(size: size))
+            postScriptName = "Inter-Regular"
         case .medium:
-            return .inter(.medium(size: size))
+            postScriptName = "Inter-Medium"
         case .semibold:
-            return .inter(.semibold(size: size))
+            postScriptName = "Inter-SemiBold"
         case .bold:
-            return .inter(.bold(size: size))
+            postScriptName = "Inter-Bold"
         }
+        return .custom(postScriptName, size: size)
     }
 
     static let body = font(14)
@@ -362,5 +365,37 @@ struct NotionSearchField: View {
             }
         }
         .animation(.easeOut(duration: 0.12), value: isFocused)
+    }
+}
+
+
+// MARK: - Font registration
+
+/// Registers the Inter resources shipped by the pinned FontInter package
+/// without importing its Swift module. This keeps Noty's existing
+/// xcodebuild -target CI path working while still embedding the font resource.
+enum NotionFontRegistrar {
+    static func registerInter() {
+        guard let resources = Bundle.main.resourceURL else { return }
+
+        let fileManager = FileManager.default
+        let topLevel = (try? fileManager.contentsOfDirectory(
+            at: resources,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        let candidateBundles = topLevel.filter {
+            $0.pathExtension == "bundle" &&
+            $0.lastPathComponent.localizedCaseInsensitiveContains("FontInter")
+        }
+
+        for bundleURL in candidateBundles {
+            guard let fontBundle = Bundle(url: bundleURL) else { continue }
+            let fontURLs = fontBundle.urls(forResourcesWithExtension: "ttf", subdirectory: nil) ?? []
+            for url in fontURLs {
+                CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+            }
+        }
     }
 }
