@@ -1292,13 +1292,13 @@ private struct PresentedTextBox: View {
             .underline(box.isUnderlined)
             .foregroundStyle(Color(hex: box.colorHex))
             .multilineTextAlignment(box.alignment.textAlignment)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 8)
             .frame(
                 width: CGFloat(box.width),
                 height: CGFloat(box.height),
                 alignment: box.alignment.frameAlignment
             )
-            .padding(.horizontal, 9)
-            .padding(.vertical, 8)
             .position(
                 x: CGFloat(box.x + box.width / 2),
                 y: CGFloat(box.y + box.height / 2)
