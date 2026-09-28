@@ -44,7 +44,7 @@ final class NotyICloudMirrorTests: XCTestCase {
         await store.syncICloudMirror()
         XCTAssertFalse(store.syncStatus.contains("failed"), store.syncStatus)
 
-        let snapshotsURL = selectedCloudFolder.appendingPathComponent("Noty Backup/Snapshots", isDirectory: true)
+        let snapshotsURL = selectedCloudFolder.appendingPathComponent("Noty Sync/Snapshots", isDirectory: true)
         let firstGenerationCount = try FileManager.default.contentsOfDirectory(atPath: snapshotsURL.path).count
         XCTAssertEqual(firstGenerationCount, 1)
 
@@ -90,7 +90,7 @@ final class NotyICloudMirrorTests: XCTestCase {
         await store.syncICloudMirror()
 
         XCTAssertTrue(FileManager.default.fileExists(
-            atPath: selectedCloudFolder.appendingPathComponent("Noty Backup/Current.json").path
+            atPath: selectedCloudFolder.appendingPathComponent("Noty Sync/Current.json").path
         ))
         XCTAssertFalse(store.syncStatus.contains("failed"), store.syncStatus)
 
@@ -150,6 +150,36 @@ final class NotyICloudMirrorTests: XCTestCase {
         await reopenedStore.syncICloudMirror()
         XCTAssertFalse(reopenedStore.syncStatus.localizedCaseInsensitiveContains("failed"), reopenedStore.syncStatus)
         XCTAssertEqual(reopenedStore.documents.first?.title, "Persisted backup")
+    }
+
+
+    @MainActor
+    func testLegacyNotyBackupFolderRemainsReadable() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NotyLegacyFolderSyncQA-\(UUID().uuidString)", isDirectory: true)
+        let firstLibrary = root.appendingPathComponent("first-library", isDirectory: true)
+        let secondLibrary = root.appendingPathComponent("second-library", isDirectory: true)
+        let selectedFolder = root.appendingPathComponent("selected-folder", isDirectory: true)
+        try FileManager.default.createDirectory(at: selectedFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let firstStore = NotyStore(storageDirectoryURL: firstLibrary)
+        _ = firstStore.createDocument(title: "Legacy sync data", kind: .note, folderID: nil)
+        try firstStore.configureICloudMirror(folderURL: selectedFolder)
+        await firstStore.syncICloudMirror()
+
+        let newRoot = selectedFolder.appendingPathComponent("Noty Sync", isDirectory: true)
+        let legacyRoot = selectedFolder.appendingPathComponent("Noty Backup", isDirectory: true)
+        try FileManager.default.moveItem(at: newRoot, to: legacyRoot)
+
+        let secondStore = NotyStore(storageDirectoryURL: secondLibrary)
+        try secondStore.configureICloudMirror(folderURL: selectedFolder)
+        await secondStore.syncICloudMirror()
+
+        XCTAssertEqual(secondStore.documents.first?.title, "Legacy sync data")
+        XCTAssertFalse(secondStore.syncStatus.localizedCaseInsensitiveContains("failed"), secondStore.syncStatus)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyRoot.appendingPathComponent("Current.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: newRoot.path))
     }
 
 }
