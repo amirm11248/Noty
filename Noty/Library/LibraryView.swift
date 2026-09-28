@@ -120,6 +120,7 @@ struct LibraryView: View {
             switch phase {
             case .active:
                 refreshSearchResults()
+                folderSyncProfile.refresh()
                 Task { await syncCloudMirrors() }
             case .background:
                 flushCloudMirrorsBeforeSuspension()
@@ -129,6 +130,7 @@ struct LibraryView: View {
         }
         .task {
             refreshSearchResults()
+            folderSyncProfile.refresh()
             await syncCloudMirrors()
             scheduleBackgroundCloudRetry()
         }
@@ -443,10 +445,20 @@ struct LibraryView: View {
                             .foregroundStyle(isICloudSyncError ? NotionTheme.danger : NotionTheme.inkSecondary)
                             .padding(.top, 1)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(isICloudSyncError ? "Restore folder sync access" : "Sync your library with a folder")
+                            Text(
+                                isICloudSyncError
+                                    ? "Restore folder sync access"
+                                    : (folderSyncProfile.sharedFolderURL == nil ? "Sync your library with a folder" : "Shared sync folder found")
+                            )
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(NotionTheme.ink)
-                            Text(isICloudSyncError ? displayICloudMirrorStatus(store.syncStatus) : "Choose the same iCloud Drive folder on each device. Noty merges changes automatically.")
+                            Text(
+                                isICloudSyncError
+                                    ? displayICloudMirrorStatus(store.syncStatus)
+                                    : (folderSyncProfile.sharedFolderURL == nil
+                                        ? "Choose the same iCloud Drive folder on each device. Noty merges changes automatically."
+                                        : "Your Apple devices shared a folder link through iCloud Keychain. Open Settings to connect this device.")
+                            )
                                 .font(.system(size: 12))
                                 .foregroundStyle(isICloudSyncError ? NotionTheme.danger : NotionTheme.inkSecondary)
                                 .lineLimit(3)
@@ -1119,7 +1131,7 @@ struct LibraryView: View {
             }
         case .settings:
             NavigationStack {
-                LibrarySettingsView(store: store, oneDrive: oneDrive)
+                LibrarySettingsView(store: store, oneDrive: oneDrive, folderSyncProfile: folderSyncProfile)
             }
         }
     }
@@ -1432,6 +1444,7 @@ private struct MoveFolderRow: Identifiable {
 private struct LibrarySettingsView: View {
     var store: NotyStore
     var oneDrive: OneDriveService
+    var folderSyncProfile: FolderSyncProfileStore
 
     @Environment(\.dismiss) private var dismiss
     @State private var isChoosingFolder = false
