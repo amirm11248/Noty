@@ -146,7 +146,10 @@ final class NotyStore {
             return NotyDocument(title: normalizedTitle, kind: kind, folderID: nil)
         }
 
-        let page = NotyPage(template: kind == .book ? .ruled : .blank)
+        // Notes and books are one notebook concept in the UI. Keep the legacy
+        // enum cases for on-disk compatibility, but new editable documents
+        // start from the same neutral blank paper.
+        let page = NotyPage(template: .blank)
         let now = Self.storeTimestamp()
         let document = NotyDocument(title: normalizedTitle, kind: kind, folderID: folderID, pages: [page], createdAt: now, updatedAt: now)
         documents.append(document)
