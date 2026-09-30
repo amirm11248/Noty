@@ -47,6 +47,7 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         UIApplicationSupportsDocumentBrowser: false
+        NSCameraUsageDescription: Noty uses the camera only when you choose Scan Document to add paper pages to a notebook.
         UIBackgroundModes:
           - processing
         BGTaskSchedulerPermittedIdentifiers:

@@ -43,6 +43,8 @@
 	<string>1</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Noty uses the camera only when you choose Scan Document to add paper pages to a notebook.</string>
 	<key>UIApplicationSupportsDocumentBrowser</key>
 	<false/>
 	<key>UIBackgroundModes</key>
