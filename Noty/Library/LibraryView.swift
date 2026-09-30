@@ -1,6 +1,8 @@
+import PhotosUI
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import VisionKit
 
 struct LibraryView: View {
     var store: NotyStore
@@ -15,6 +17,9 @@ struct LibraryView: View {
     @State private var activeSheet: LibrarySheetRequest?
     @State private var deleteTarget: DeleteTarget?
     @State private var isImporting = false
+    @State private var isImportingPhotos = false
+    @State private var importPhotoItems: [PhotosPickerItem] = []
+    @State private var isScanningDocument = false
     @State private var syncDebounce: Task<Void, Never>?
     @State private var syncDebounceID: UUID?
     @State private var backgroundSyncTask: LibraryBackgroundTask?
@@ -45,12 +50,39 @@ struct LibraryView: View {
             isPresented: $isImporting,
             allowedContentTypes: [
                 .pdf,
+                .image,
                 UTType("com.microsoft.word.doc") ?? .data,
                 UTType("org.openxmlformats.wordprocessingml.document") ?? .data
             ],
             allowsMultipleSelection: true,
             onCompletion: importFiles
         )
+        .photosPicker(
+            isPresented: $isImportingPhotos,
+            selection: $importPhotoItems,
+            maxSelectionCount: 50,
+            matching: .images
+        )
+        .onChange(of: importPhotoItems.count) { _, count in
+            guard count > 0 else { return }
+            importSelectedPhotos()
+        }
+        .sheet(isPresented: $isScanningDocument) {
+            DocumentScannerSheet(
+                onScan: { images in
+                    isScanningDocument = false
+                    importImagesAsNotebook(images, title: "Scanned Document", openWhenDone: true)
+                },
+                onCancel: {
+                    isScanningDocument = false
+                },
+                onFailure: { error in
+                    isScanningDocument = false
+                    alertMessage = error.localizedDescription
+                }
+            )
+            .ignoresSafeArea()
+        }
         .confirmationDialog(
             deletePrompt,
             isPresented: Binding(
@@ -156,24 +188,19 @@ struct LibraryView: View {
                         .padding(.leading, 4)
                 } else {
                     ForEach(folderOutline, id: \.folder.id) { row in
-                        folderSidebarRow(row)
+                        VStack(spacing: 0) {
+                            folderSidebarRow(row)
+
+                            if expandedFolderIDs.contains(row.folder.id) {
+                                ForEach(sidebarDocuments(in: row.folder.id)) { document in
+                                    sidebarDocumentRow(document, depth: row.depth + 1)
+                                }
+                            }
+                        }
                     }
                 }
             } header: {
-                HStack {
-                    NotionSectionLabel(text: "Folders")
-                    Spacer()
-                    Button {
-                        present(.name(.newFolder(parentID: selectedFolderID)))
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(NotionTheme.inkTertiary)
-                            .frame(width: 22, height: 22)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("New folder")
-                }
+                NotionSectionLabel(text: "Folders")
             }
 
             Section {
@@ -212,63 +239,32 @@ struct LibraryView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
-                    Menu {
-                        Button("Settings", systemImage: "gearshape") {
-                            present(.settings)
-                        }
-                        if store.iCloudMirrorFolderURL != nil {
-                            Button("Sync now", systemImage: "arrow.triangle.2.circlepath") {
-                                Task { await store.syncICloudMirror() }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 4)
-                                    .fill(NotionTheme.ink)
-                                Text("N")
-                                    .font(NotionTheme.font(11, weight: .bold))
-                                    .foregroundStyle(NotionTheme.canvas)
-                            }
-                            .frame(width: 22, height: 22)
-
-                            Text("Noty")
-                                .font(NotionTheme.font(14, weight: .semibold))
-                                .foregroundStyle(NotionTheme.ink)
-
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(NotionTheme.inkTertiary)
-                        }
-                        .padding(.horizontal, 2)
-                        .frame(height: 30)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(NotionTheme.ink)
+                        Text("N")
+                            .font(NotionTheme.font(11, weight: .bold))
+                            .foregroundStyle(NotionTheme.canvas)
                     }
-                    .buttonStyle(NotionRowButtonStyle())
-                    .accessibilityLabel("Noty workspace menu")
+                    .frame(width: 22, height: 22)
+
+                    Text("Noty")
+                        .font(NotionTheme.font(14, weight: .semibold))
+                        .foregroundStyle(NotionTheme.ink)
 
                     Spacer(minLength: 6)
 
-                    Menu {
-                        Button("New note", systemImage: "square.and.pencil") {
-                            createDocument(.note)
+                    if store.iCloudMirrorFolderURL != nil {
+                        Button {
+                            Task { await store.syncICloudMirror() }
+                        } label: {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 12, weight: .medium))
+                                .frame(width: 28, height: 28)
                         }
-                        Button("New book", systemImage: "books.vertical") {
-                            createDocument(.book)
-                        }
-                        Button("New folder", systemImage: "folder.badge.plus") {
-                            present(.name(.newFolder(parentID: selectedFolderID)))
-                        }
-                        Divider()
-                        Button("Import from Files", systemImage: "square.and.arrow.down") {
-                            isImporting = true
-                        }
-                    } label: {
-                        Image(systemName: "square.and.pencil")
-                            .font(.system(size: 13, weight: .medium))
-                            .frame(width: 28, height: 28)
+                        .buttonStyle(NotionIconButtonStyle())
+                        .accessibilityLabel("Sync now")
                     }
-                    .buttonStyle(NotionIconButtonStyle())
-                    .accessibilityLabel("Create or import")
                 }
 
                 NotionSearchField(text: $searchText, placeholder: "Search")
@@ -277,29 +273,6 @@ struct LibraryView: View {
             .padding(.top, 8)
             .padding(.bottom, 10)
             .background(NotionTheme.sidebar)
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            Button {
-                createDocument(.note)
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .semibold))
-                        .frame(width: 18)
-                    Text("New page")
-                        .font(NotionTheme.font(13, weight: .medium))
-                    Spacer()
-                }
-                .foregroundStyle(NotionTheme.inkSecondary)
-                .padding(.horizontal, 14)
-                .frame(height: 38)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(NotionRowButtonStyle())
-            .background(NotionTheme.sidebar)
-            .overlay(alignment: .top) {
-                Rectangle().fill(NotionTheme.hairline).frame(height: 1)
-            }
         }
     }
 
@@ -369,31 +342,26 @@ struct LibraryView: View {
                             }
                         }
                     } else {
-                        Button {
-                            isImporting = true
-                        } label: {
-                            Image(systemName: "square.and.arrow.down")
-                                .font(.system(size: 13, weight: .medium))
-                                .frame(width: 28, height: 28)
-                        }
-                        .buttonStyle(NotionIconButtonStyle())
-                        .help("Import PDF or Office documents from Files")
-                        .accessibilityLabel("Import")
-
                         Menu {
-                            Button("New note", systemImage: "square.and.pencil") {
-                                createDocument(.note)
-                            }
-                            Button("New book", systemImage: "books.vertical") {
-                                createDocument(.book)
+                            Button("New notebook", systemImage: "book.closed") {
+                                createNotebook()
                             }
                             Button("New folder", systemImage: "folder.badge.plus") {
                                 present(.name(.newFolder(parentID: selectedFolderID)))
                             }
+
                             Divider()
-                            Button("Settings", systemImage: "gearshape") {
-                                present(.settings)
+
+                            Button("Import from Files", systemImage: "folder") {
+                                isImporting = true
                             }
+                            Button("Import Photos", systemImage: "photo.on.rectangle.angled") {
+                                isImportingPhotos = true
+                            }
+                            Button("Scan Document", systemImage: "doc.viewfinder") {
+                                isScanningDocument = true
+                            }
+                            .disabled(!VNDocumentCameraViewController.isSupported)
                         } label: {
                             HStack(spacing: 5) {
                                 Image(systemName: "plus")
@@ -504,9 +472,9 @@ struct LibraryView: View {
                 .font(.system(size: 13))
                 .foregroundStyle(NotionTheme.inkSecondary)
             if searchText.isEmpty && selection == .all {
-                Button("Create a note") { createDocument(.note) }
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(NotionTheme.ink)
+                Text("Use New in the top-right to create a notebook, folder, or import content.")
+                    .font(NotionTheme.caption)
+                    .foregroundStyle(NotionTheme.inkTertiary)
                     .padding(.top, 4)
             }
         }
@@ -523,11 +491,11 @@ struct LibraryView: View {
     }
 
     private var emptyDescription: String {
-        if !searchText.isEmpty { return "Try another title, folder, or note text." }
+        if !searchText.isEmpty { return "Try another title, folder, notebook, or document text." }
         if selection == .favorites { return "Favorite pages will appear here." }
         if selection == .recents { return "Pages you open will appear here." }
         if selection == .trash { return "Deleted documents stay here until you restore or permanently delete them." }
-        return "Create a note or book, or import a PDF from Files."
+        return "Create a notebook or import a PDF, Word file, photo, or scan."
     }
 
     private var iCloudBackupStatus: some View {
@@ -720,7 +688,7 @@ struct LibraryView: View {
     private var documentList: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                NotionSectionLabel(text: "Pages")
+                NotionSectionLabel(text: "Documents")
                 Spacer()
                 Text("\(visibleDocuments.count)")
                     .font(NotionTheme.caption)
@@ -817,11 +785,11 @@ struct LibraryView: View {
 
     private var folderDescription: String {
         if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Titles, folders, typed notes, handwriting, and PDF text"
+            return "Titles, folders, typed text, handwriting, and PDF text"
         }
         switch selection {
         case .all:
-            return "Your notes, books, and imported PDFs"
+            return "Your notebooks and imported documents"
         case .recents:
             return "Pages you have opened recently"
         case .favorites:
@@ -1029,6 +997,54 @@ struct LibraryView: View {
 
     private func hasChildren(_ folderID: UUID) -> Bool {
         store.folders.contains { $0.parentID == folderID }
+            || store.documents.contains { $0.folderID == folderID }
+    }
+
+    private func sidebarDocuments(in folderID: UUID) -> [NotyDocument] {
+        store.documents
+            .filter { $0.folderID == folderID }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    private func sidebarDocumentRow(_ document: NotyDocument, depth: Int) -> some View {
+        Button {
+            openEditor(document.id)
+        } label: {
+            HStack(spacing: 8) {
+                Color.clear.frame(width: 20, height: 1)
+
+                Image(systemName: documentSymbol(document.kind))
+                    .font(.system(size: 12))
+                    .foregroundStyle(NotionTheme.inkSecondary)
+                    .frame(width: 16)
+
+                Text(document.title)
+                    .font(NotionTheme.font(12))
+                    .foregroundStyle(NotionTheme.ink)
+                    .lineLimit(1)
+
+                Spacer(minLength: 3)
+            }
+            .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, CGFloat(depth) * 13)
+        .notionSidebarRow()
+        .contextMenu {
+            Button(isFavorite(document.id) ? "Remove from Favorites" : "Add to Favorites", systemImage: "star") {
+                toggleFavorite(document.id)
+            }
+            Button("Rename", systemImage: "pencil") {
+                present(.name(.renameDocument(document.id)))
+            }
+            Button("Move", systemImage: "folder") {
+                present(.moveDocument(document.id))
+            }
+            Button("Delete", systemImage: "trash", role: .destructive) {
+                deleteTarget = .document(document.id)
+            }
+        }
     }
 
     private func sidebarDestination(_ title: String, symbol: String, count: Int) -> some View {
@@ -1105,9 +1121,6 @@ struct LibraryView: View {
             Button("Rename", systemImage: "pencil") {
                 present(.name(.renameFolder(row.folder.id)))
             }
-            Button("New subfolder", systemImage: "folder.badge.plus") {
-                present(.name(.newFolder(parentID: row.folder.id)))
-            }
             Button("Delete folder", systemImage: "trash", role: .destructive) {
                 deleteTarget = .folder(row.folder.id)
             }
@@ -1175,24 +1188,20 @@ struct LibraryView: View {
 
     private func documentSymbol(_ kind: NotyDocumentKind) -> String {
         switch kind {
-        case .note: "doc.text"
-        case .book: "book"
+        case .note, .book: "book.closed"
         case .pdf: "doc.richtext"
         }
     }
 
     private func documentKindLabel(_ kind: NotyDocumentKind) -> String {
         switch kind {
-        case .note: "Note"
-        case .book: "Book"
+        case .note, .book: "Notebook"
         case .pdf: "PDF"
         }
     }
 
-    private func createDocument(_ kind: NotyDocumentKind) {
-        let title = kind == .book ? "Untitled Book" : "Untitled Note"
-        let document = store.createDocument(title: title, kind: kind, folderID: selectedFolderID)
-        // New documents are immediately ready to open in the editor.
+    private func createNotebook() {
+        let document = store.createDocument(title: "Untitled Notebook", kind: .book, folderID: selectedFolderID)
         activeSheet = nil
         openEditor(document.id)
     }
@@ -1279,9 +1288,22 @@ struct LibraryView: View {
                         if didStartAccessing { url.stopAccessingSecurityScopedResource() }
                     }
                     do {
-                        _ = try await store.importDocument(from: url, folderID: selectedFolderID, converter: nil)
-                        if let message = store.lastOperationMessage {
-                            importNotices.append("\(url.lastPathComponent): \(message)")
+                        if let type = UTType(filenameExtension: url.pathExtension),
+                           type.conforms(to: .image) {
+                            let data = try Data(contentsOf: url)
+                            guard let image = UIImage(data: data) else {
+                                throw NotyStoreError.invalidImage
+                            }
+                            importImagesAsNotebook(
+                                [image],
+                                title: url.deletingPathExtension().lastPathComponent,
+                                openWhenDone: false
+                            )
+                        } else {
+                            _ = try await store.importDocument(from: url, folderID: selectedFolderID, converter: nil)
+                            if let message = store.lastOperationMessage {
+                                importNotices.append("\(url.lastPathComponent): \(message)")
+                            }
                         }
                     } catch {
                         importErrors.append("\(url.lastPathComponent): \(error.localizedDescription)")
@@ -1296,6 +1318,133 @@ struct LibraryView: View {
                 }
             }
         }
+    }
+
+    private func importSelectedPhotos() {
+        let items = importPhotoItems
+        importPhotoItems = []
+        guard !items.isEmpty else { return }
+
+        Task { @MainActor in
+            var images: [UIImage] = []
+            var failures = 0
+
+            for item in items {
+                do {
+                    guard let data = try await item.loadTransferable(type: Data.self),
+                          let image = UIImage(data: data) else {
+                        failures += 1
+                        continue
+                    }
+                    images.append(image)
+                } catch {
+                    failures += 1
+                }
+            }
+
+            guard !images.isEmpty else {
+                alertMessage = "Noty couldn’t read the selected photos."
+                return
+            }
+
+            importImagesAsNotebook(images, title: images.count == 1 ? "Imported Photo" : "Photo Import", openWhenDone: true)
+            if failures > 0 {
+                alertMessage = "\(failures) selected photo\(failures == 1 ? "" : "s") could not be imported."
+            }
+        }
+    }
+
+    private func importImagesAsNotebook(_ images: [UIImage], title: String, openWhenDone: Bool) {
+        guard !images.isEmpty else { return }
+
+        let document = store.createDocument(
+            title: title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Imported Notebook" : title,
+            kind: .book,
+            folderID: selectedFolderID
+        )
+
+        guard var pageID = document.pages.first?.id else {
+            alertMessage = "Noty couldn’t create a page for the import."
+            return
+        }
+
+        var failedCount = 0
+
+        for (index, image) in images.enumerated() {
+            if index > 0 {
+                store.addPage(documentID: document.id, after: pageID, template: .blank)
+                guard let updatedDocument = store.documents.first(where: { $0.id == document.id }),
+                      let nextPageID = updatedDocument.pages.last?.id else {
+                    failedCount += 1
+                    continue
+                }
+                pageID = nextPageID
+            }
+
+            do {
+                try addImportedImage(image, documentID: document.id, pageID: pageID)
+            } catch {
+                failedCount += 1
+            }
+        }
+
+        if failedCount == images.count {
+            store.deleteDocument(id: document.id)
+            alertMessage = "Noty couldn’t import these images."
+            return
+        }
+
+        if failedCount > 0 {
+            alertMessage = "\(failedCount) image\(failedCount == 1 ? "" : "s") could not be imported."
+        }
+
+        if openWhenDone {
+            openEditor(document.id)
+        }
+    }
+
+    private func addImportedImage(_ image: UIImage, documentID: UUID, pageID: UUID) throws {
+        let maxPixelDimension: CGFloat = 2400
+        let longestSide = max(image.size.width, image.size.height)
+        let scale = longestSide > maxPixelDimension ? maxPixelDimension / longestSide : 1
+        let normalizedSize = CGSize(
+            width: max(1, image.size.width * scale),
+            height: max(1, image.size.height * scale)
+        )
+
+        let renderer = UIGraphicsImageRenderer(size: normalizedSize)
+        let normalizedImage = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: normalizedSize))
+        }
+        guard let data = normalizedImage.jpegData(compressionQuality: 0.92) ?? normalizedImage.pngData() else {
+            throw NotyStoreError.invalidImage
+        }
+
+        let added = try store.addPageImage(data: data, documentID: documentID, pageID: pageID)
+
+        guard let page = store.documents
+            .first(where: { $0.id == documentID })?
+            .pages.first(where: { $0.id == pageID }) else { return }
+
+        let margin: CGFloat = 24
+        let availableWidth = max(80, page.canvasSize.width - margin * 2)
+        let availableHeight = max(80, page.canvasSize.height - margin * 2)
+        let imageAspect = max(normalizedSize.width / max(normalizedSize.height, 1), 0.01)
+
+        var width = availableWidth
+        var height = width / imageAspect
+        if height > availableHeight {
+            height = availableHeight
+            width = height * imageAspect
+        }
+
+        var pageImages = page.images
+        guard let index = pageImages.firstIndex(where: { $0.id == added.id }) else { return }
+        pageImages[index].x = Double((page.canvasSize.width - width) / 2)
+        pageImages[index].y = Double((page.canvasSize.height - height) / 2)
+        pageImages[index].width = Double(width)
+        pageImages[index].height = Double(height)
+        store.updatePageImages(documentID: documentID, pageID: pageID, images: pageImages)
     }
 
     private func scheduleOneDriveSync() {
@@ -1341,6 +1490,59 @@ struct LibraryView: View {
             if backgroundSyncTask === task {
                 backgroundSyncTask = nil
             }
+        }
+    }
+}
+
+private struct DocumentScannerSheet: UIViewControllerRepresentable {
+    let onScan: ([UIImage]) -> Void
+    let onCancel: () -> Void
+    let onFailure: (Error) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onScan: onScan, onCancel: onCancel, onFailure: onFailure)
+    }
+
+    func makeUIViewController(context: Context) -> VNDocumentCameraViewController {
+        let controller = VNDocumentCameraViewController()
+        controller.delegate = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: VNDocumentCameraViewController, context: Context) { }
+
+    final class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
+        let onScan: ([UIImage]) -> Void
+        let onCancel: () -> Void
+        let onFailure: (Error) -> Void
+
+        init(
+            onScan: @escaping ([UIImage]) -> Void,
+            onCancel: @escaping () -> Void,
+            onFailure: @escaping (Error) -> Void
+        ) {
+            self.onScan = onScan
+            self.onCancel = onCancel
+            self.onFailure = onFailure
+        }
+
+        func documentCameraViewController(
+            _ controller: VNDocumentCameraViewController,
+            didFinishWith scan: VNDocumentCameraScan
+        ) {
+            let images = (0..<scan.pageCount).map { scan.imageOfPage(at: $0) }
+            onScan(images)
+        }
+
+        func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) {
+            onCancel()
+        }
+
+        func documentCameraViewController(
+            _ controller: VNDocumentCameraViewController,
+            didFailWithError error: Error
+        ) {
+            onFailure(error)
         }
     }
 }
@@ -1445,31 +1647,44 @@ private struct NameEntrySheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                TextField(placeholder, text: $name)
-                    .font(NotionTheme.body)
-                    .focused($isFocused)
-                    .submitLabel(.done)
-                    .onSubmit(save)
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Button("Cancel") { dismiss() }
+                    .foregroundStyle(NotionTheme.inkSecondary)
+
+                Spacer()
+
+                Text(title)
+                    .font(NotionTheme.font(14, weight: .semibold))
+                    .foregroundStyle(NotionTheme.ink)
+
+                Spacer()
+
+                Button("Save", action: save)
+                    .font(NotionTheme.font(13, weight: .semibold))
+                    .foregroundStyle(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? NotionTheme.inkTertiary : NotionTheme.accent)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .scrollContentBackground(.hidden)
-            .background(NotionTheme.canvas)
-            .tint(NotionTheme.accent)
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save", action: save)
-                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-            .task { isFocused = true }
+            .padding(.horizontal, 18)
+            .frame(height: 52)
+
+            Rectangle().fill(NotionTheme.hairline).frame(height: 1)
+
+            TextField(placeholder, text: $name)
+                .font(NotionTheme.body)
+                .textFieldStyle(.plain)
+                .focused($isFocused)
+                .submitLabel(.done)
+                .onSubmit(save)
+                .padding(.horizontal, 14)
+                .frame(height: 44)
+                .background(NotionTheme.rowHover, in: RoundedRectangle(cornerRadius: NotionTheme.radiusMedium))
+                .padding(18)
         }
-        .presentationDetents([.medium])
+        .frame(width: 420)
+        .background(NotionTheme.canvas)
+        .presentationSizing(.fitted)
+        .task { isFocused = true }
     }
 
     private func save() {
@@ -1549,7 +1764,7 @@ private struct MoveDocumentSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationSizing(.form)
     }
 }
 
