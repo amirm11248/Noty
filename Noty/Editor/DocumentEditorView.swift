@@ -1059,10 +1059,14 @@ struct DocumentEditorView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 2))
                         .overlay(RoundedRectangle(cornerRadius: 2).stroke(EditorPalette.border.opacity(0.7), lineWidth: 0.7))
                     }
-                    .frame(minWidth: max(proxy.size.width, pageWidth + 48), minHeight: max(proxy.size.height, pageHeight + 40))
-                    .padding(20)
+                    .frame(
+                        width: max(proxy.size.width, pageWidth + 48),
+                        height: max(proxy.size.height, pageHeight + 48),
+                        alignment: .center
+                    )
                 }
                 .scrollIndicators(.visible)
+                .defaultScrollAnchor(.center)
                 .simultaneousGesture(
                     MagnificationGesture()
                         .onChanged { magnification in
@@ -2199,17 +2203,15 @@ private struct ActivityViewController: UIViewControllerRepresentable {
 private extension NotyDocumentKind {
     var editorLabel: String {
         switch self {
-        case .note: "Note"
+        case .note, .book: "Notebook"
         case .pdf: "PDF document"
-        case .book: "Book"
         }
     }
 
     var editorSymbolName: String {
         switch self {
-        case .note: "doc.text"
+        case .note, .book: "book.closed"
         case .pdf: "doc.richtext"
-        case .book: "book"
         }
     }
 }
