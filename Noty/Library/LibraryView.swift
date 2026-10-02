@@ -9,6 +9,8 @@ struct LibraryView: View {
     var oneDrive: OneDriveService
 
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var selection: LibrarySelection = .all
     @State private var expandedFolderIDs: Set<UUID> = []
@@ -25,9 +27,11 @@ struct LibraryView: View {
     @State private var backgroundSyncTask: LibraryBackgroundTask?
     @State private var alertMessage: String?
     @State private var searchResults: [NotySearchResult] = []
+    @State private var selectedSearchResult: NotySearchResult?
     @State private var account = NotyAccountService()
     @AppStorage("noty.library.favoriteDocumentIDs") private var favoriteIDsValue = ""
     @AppStorage("noty.library.recentDocumentIDs") private var recentIDsValue = ""
+    @AppStorage("noty.library.shelfView") private var shelfView = true
     @AppStorage("noty.library.sortOrder") private var sortOrderValue = LibrarySortOrder.edited.rawValue
 
     private var selectedFolderID: UUID? {
@@ -43,6 +47,8 @@ struct LibraryView: View {
             detail
         }
         .navigationSplitViewStyle(.balanced)
+        .statusBarHidden(!editorPath.isEmpty)
+        .persistentSystemOverlays(editorPath.isEmpty ? .automatic : .hidden)
         .sheet(item: $activeSheet) { request in
             sheet(for: request.destination)
         }
@@ -97,7 +103,7 @@ struct LibraryView: View {
             Text(deleteMessage)
         }
         .alert(
-            "Library",
+            "Home",
             isPresented: Binding(
                 get: { alertMessage != nil },
                 set: { if !$0 { alertMessage = nil } }
@@ -119,6 +125,7 @@ struct LibraryView: View {
         .onChange(of: searchText) { _, _ in
             refreshSearchResults()
         }
+        .onChange(of: store.searchIndexRevision) { _, _ in refreshSearchResults() }
         .onChange(of: editorPath) { _, path in
             withAnimation(.easeInOut(duration: 0.2)) {
                 columnVisibility = path.isEmpty ? .all : .detailOnly
@@ -130,6 +137,7 @@ struct LibraryView: View {
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
+                store.ensureHandwritingSearchIndex()
                 refreshSearchResults()
                 Task { await account.bootstrap(force: true) }
                 Task { await syncCloudMirrors() }
@@ -140,6 +148,7 @@ struct LibraryView: View {
             }
         }
         .task {
+            store.ensureHandwritingSearchIndex()
             refreshSearchResults()
             await account.bootstrap()
             await syncCloudMirrors()
@@ -157,123 +166,60 @@ struct LibraryView: View {
     }
 
     private var sidebar: some View {
-        List {
-            Section {
-                Button {
-                    selection = .all
-                } label: {
-                    sidebarDestination("Library", symbol: "house", count: store.documents.count)
-                }
-                .buttonStyle(.plain)
-                .notionSidebarRow(isSelected: selection == .all)
-
-                Button { selection = .recents } label: {
-                    sidebarDestination("Recents", symbol: "clock", count: recentDocuments.count)
-                }
-                .buttonStyle(.plain)
-                .notionSidebarRow(isSelected: selection == .recents)
-
-                Button { selection = .favorites } label: {
-                    sidebarDestination("Favorites", symbol: "star", count: favoriteDocuments.count)
-                }
-                .buttonStyle(.plain)
-                .notionSidebarRow(isSelected: selection == .favorites)
+        VStack(spacing: 20) {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(spacing: 12) {
+                    Text("noty").font(.system(size: 25, weight: .semibold, design: .rounded))
+                    Spacer()
+                }.padding(.horizontal, 12)
             }
-
-            Section {
-                if store.folders.isEmpty {
-                    Text("No folders yet")
-                        .font(NotionTheme.bodySmall)
-                        .foregroundStyle(NotionTheme.inkTertiary)
-                        .padding(.leading, 4)
-                } else {
-                    ForEach(folderOutline, id: \.folder.id) { row in
-                        VStack(spacing: 0) {
-                            folderSidebarRow(row)
-
-                            if expandedFolderIDs.contains(row.folder.id) {
-                                ForEach(sidebarDocuments(in: row.folder.id)) { document in
-                                    sidebarDocumentRow(document, depth: row.depth + 1)
-                                }
-                            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(spacing: 4) {
+                        sidebarLink("Home", symbol: "house", count: 0, target: .all)
+                        sidebarLink("Search library & notebooks", symbol: "magnifyingglass", count: 0, target: .search)
+                            .accessibilityLabel("Search through your library or notebooks")
+                        sidebarLink("Recents", symbol: "clock", count: recentDocuments.count, target: .recents)
+                        sidebarLink("Favorites", symbol: "star", count: favoriteDocuments.count, target: .favorites)
+                    }
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("FOLDERS").font(.caption2.weight(.semibold)).tracking(1.2).foregroundStyle(NotionTheme.inkSecondary)
+                            Spacer()
+                            Button { present(.newFolder(nil)) } label: { Image(systemName: "plus").frame(width: 32, height: 32) }
+                                .buttonStyle(.plain).accessibilityLabel("Create folder")
+                        }.padding(.leading, 12)
+                        if store.folders.isEmpty {
+                            Button { present(.newFolder(nil)) } label: {
+                                Label("Create your first folder", systemImage: "folder.badge.plus")
+                                    .font(.subheadline).foregroundStyle(NotionTheme.inkSecondary).padding(12)
+                            }.buttonStyle(.plain)
                         }
+                        ForEach(folderOutline, id: \.folder.id) { folderSidebarRow($0) }
                     }
                 }
-            } header: {
-                NotionSectionLabel(text: "Folders")
-            }
-
-            Section {
-                Button {
-                    selection = .trash
-                    searchText = ""
-                } label: {
-                    sidebarDestination("Trash", symbol: "trash", count: store.trashItems.count)
-                }
-                .buttonStyle(.plain)
-                .notionSidebarRow(isSelected: selection == .trash)
-
-                Button { present(.settings) } label: {
-                    HStack(spacing: 9) {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 13))
-                            .foregroundStyle(NotionTheme.inkSecondary)
-                            .frame(width: 18)
-                        Text("Settings")
-                            .font(NotionTheme.body)
-                            .foregroundStyle(NotionTheme.ink)
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity, minHeight: NotionTheme.sidebarRowHeight, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .notionSidebarRow()
+            }.scrollIndicators(.hidden)
+            VStack(spacing: 4) {
+                Divider().padding(.bottom, 8)
+                sidebarLink("Trash", symbol: "trash", count: store.trashItems.count, target: .trash)
+                Button { present(.settings) } label: { sidebarDestination("Settings", symbol: "slider.horizontal.3", count: 0).padding(.horizontal, 12) }
+                    .buttonStyle(.plain).notionSidebarRow()
             }
         }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
+        .padding(.horizontal, 14).padding(.top, 16).padding(.bottom, 12)
         .background(NotionTheme.sidebar)
-        .foregroundStyle(NotionTheme.ink)
-        .tint(NotionTheme.accent)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(NotionTheme.ink)
-                        Text("N")
-                            .font(NotionTheme.font(11, weight: .bold))
-                            .foregroundStyle(NotionTheme.canvas)
-                    }
-                    .frame(width: 22, height: 22)
+        .foregroundStyle(NotionTheme.ink).tint(NotionTheme.accent)
+        .navigationSplitViewColumnWidth(min: 240, ideal: 264, max: 300)
+    }
 
-                    Text("Noty")
-                        .font(NotionTheme.font(14, weight: .semibold))
-                        .foregroundStyle(NotionTheme.ink)
-
-                    Spacer(minLength: 6)
-
-                    if store.iCloudMirrorFolderURL != nil {
-                        Button {
-                            Task { await store.syncICloudMirror() }
-                        } label: {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                                .font(.system(size: 12, weight: .medium))
-                                .frame(width: 28, height: 28)
-                        }
-                        .buttonStyle(NotionIconButtonStyle())
-                        .accessibilityLabel("Sync now")
-                    }
-                }
-
-                NotionSearchField(text: $searchText, placeholder: "Search")
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            .padding(.bottom, 10)
-            .background(NotionTheme.sidebar)
-        }
+    private func sidebarLink(_ title: String, symbol: String, count: Int, target: LibrarySelection) -> some View {
+        Button {
+            selection = target; searchText = ""
+            if target == .search { store.ensureHandwritingSearchIndex() }
+        } label: {
+            sidebarDestination(title, symbol: symbol, count: count).padding(.horizontal, 12)
+        }.buttonStyle(.plain).notionSidebarRow(isSelected: selection == target)
+            .accessibilityAddTraits(selection == target ? .isSelected : [])
     }
 
     private var detail: some View {
@@ -283,7 +229,9 @@ struct LibraryView: View {
                     pageHeader
                         .padding(.bottom, 28)
 
-                    if selection == .trash {
+                    if selection == .search {
+                        librarySearch
+                    } else if selection == .trash {
                         if visibleTrashItems.isEmpty {
                             emptyState
                         } else {
@@ -319,13 +267,13 @@ struct LibraryView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 56)
+                .padding(.horizontal, horizontalSizeClass == .compact ? 20 : 36)
                 .padding(.top, 34)
                 .padding(.bottom, 52)
                 .frame(maxWidth: NotionTheme.pageMaxWidth, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .background(NotionTheme.canvas)
+            .background { FrostedWorkspaceBackground() }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(NotionTheme.canvas, for: .navigationBar)
@@ -346,8 +294,9 @@ struct LibraryView: View {
                             Button("New notebook", systemImage: "book.closed") {
                                 createNotebook()
                             }
+                            Button("New whiteboard", systemImage: "rectangle.and.pencil.and.ellipsis") { present(.newWhiteboard(selectedFolderID)) }
                             Button("New folder", systemImage: "folder.badge.plus") {
-                                present(.name(.newFolder(parentID: selectedFolderID)))
+                                present(.newFolder(selectedFolderID))
                             }
 
                             Divider()
@@ -379,7 +328,7 @@ struct LibraryView: View {
                 }
             }
             .navigationDestination(for: UUID.self) { documentID in
-                DocumentEditorView(documentID: documentID, store: store)
+                DocumentEditorView(documentID: documentID, store: store, initialPageID: selectedSearchResult?.documentID == documentID ? selectedSearchResult?.pageID : nil)
             }
         }
     }
@@ -388,7 +337,7 @@ struct LibraryView: View {
         VStack(alignment: .leading, spacing: 8) {
             if !(selection == .all && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                 HStack(spacing: 5) {
-                    Button("Library") {
+                    Button("Home") {
                         selection = .all
                         searchText = ""
                     }
@@ -425,17 +374,22 @@ struct LibraryView: View {
                     .foregroundStyle(NotionTheme.ink)
                 Spacer(minLength: 8)
                 if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("\(visibleDocuments.count) results")
+                    Text("\(searchResults.count) results")
                         .font(NotionTheme.caption)
                         .foregroundStyle(NotionTheme.inkTertiary)
-                } else {
+                } else if selection != .search {
+                    Button { withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { shelfView.toggle() } } label: {
+                        Image(systemName: shelfView ? "list.bullet" : "square.grid.2x2")
+                    }.buttonStyle(NotionIconButtonStyle()).accessibilityLabel(shelfView ? "Show list" : "Show notebook shelf")
                     sortMenu
                 }
             }
 
-            Text(folderDescription)
-                .font(NotionTheme.bodySmall)
-                .foregroundStyle(NotionTheme.inkSecondary)
+            if !folderDescription.isEmpty {
+                Text(folderDescription)
+                    .font(NotionTheme.bodySmall)
+                    .foregroundStyle(NotionTheme.inkSecondary)
+            }
         }
     }
 
@@ -463,23 +417,71 @@ struct LibraryView: View {
         .buttonStyle(.plain)
     }
 
-    private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(emptyTitle)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(NotionTheme.ink)
-            Text(emptyDescription)
-                .font(.system(size: 13))
-                .foregroundStyle(NotionTheme.inkSecondary)
-            if searchText.isEmpty && selection == .all {
-                Text("Use New in the top-right to create a notebook, folder, or import content.")
-                    .font(NotionTheme.caption)
-                    .foregroundStyle(NotionTheme.inkTertiary)
-                    .padding(.top, 4)
+    private var librarySearch: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            NotionSearchField(text: $searchText, placeholder: "Search library or notebooks")
+                .accessibilityIdentifier("library.search.field")
+            if store.isIndexingHandwriting {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Indexing handwriting…").font(NotionTheme.caption)
+                }.foregroundStyle(NotionTheme.inkSecondary)
+            }
+            if let error = store.handwritingIndexError {
+                HStack {
+                    Text(error).font(NotionTheme.caption).foregroundStyle(NotionTheme.inkSecondary)
+                    Button("Retry") { store.ensureHandwritingSearchIndex() }
+                }
+            }
+            if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                ContentUnavailableView("Search your notes", systemImage: "magnifyingglass", description: Text("Find notebook titles, typed notes, handwriting, and PDF text across your library."))
+                    .padding(.top, 36)
+            } else if searchResults.isEmpty && visibleFolders.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+                    .padding(.top, 36)
+            } else {
+                if !visibleFolders.isEmpty { folderList }
+                ForEach(searchResults) { result in
+                    Button {
+                        recordRecent(result.documentID)
+                        selectedSearchResult = result
+                        editorPath.append(result.documentID)
+                    } label: {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: result.pageID == nil ? "book.closed" : "doc.text")
+                                .foregroundStyle(NotionTheme.accent).frame(width: 24)
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text(result.documentTitle).font(.subheadline.weight(.semibold))
+                                    if let pageID = result.pageID,
+                                       let index = store.documents.first(where: { $0.id == result.documentID })?.pages.firstIndex(where: { $0.id == pageID }) {
+                                        Text("Page \(index + 1)").font(.caption).foregroundStyle(NotionTheme.inkSecondary)
+                                    }
+                                }
+                                Text(result.snippet).font(.subheadline).foregroundStyle(NotionTheme.inkSecondary).lineLimit(3)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(NotionTheme.inkTertiary)
+                        }.padding(16).frame(maxWidth: .infinity, alignment: .leading).notionCard(radius: 12)
+                    }.buttonStyle(.plain)
+                }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 28)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 18) {
+            Image(systemName: searchText.isEmpty ? "books.vertical" : "magnifyingglass")
+                .font(.system(size: 42, weight: .ultraLight)).foregroundStyle(NotionTheme.accent)
+                .padding(22).background(.regularMaterial, in: Circle())
+            Text(emptyTitle).font(.title2.weight(.semibold))
+            Text(emptyDescription).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            if searchText.isEmpty && (selection == .all || selectedFolderID != nil) {
+                Button("Create a notebook", systemImage: "plus") { createNotebook() }
+                    .buttonStyle(NotionPrimaryButtonStyle())
+                Button("Import a PDF", systemImage: "square.and.arrow.down") { isImporting = true }.font(.subheadline)
+            }
+        }.frame(maxWidth: .infinity).padding(36).notionCard()
     }
 
     private var emptyTitle: String {
@@ -487,7 +489,7 @@ struct LibraryView: View {
         if selection == .favorites { return "No favorites yet" }
         if selection == .recents { return "No recent pages" }
         if selection == .trash { return "Trash is empty" }
-        return "Nothing here yet"
+        return "Space for your next idea"
     }
 
     private var emptyDescription: String {
@@ -634,58 +636,101 @@ struct LibraryView: View {
     }
 
     private var folderList: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            NotionSectionLabel(text: "Folders")
-                .padding(.bottom, 3)
-
-            ForEach(visibleFolders) { folder in
-                Button {
-                    selection = .folder(folder.id)
-                    searchText = ""
-                    expandAncestors(of: folder.id)
-                } label: {
-                    HStack(spacing: 9) {
-                        Image(systemName: "folder")
-                            .font(.system(size: 13))
-                            .foregroundStyle(NotionTheme.inkSecondary)
-                            .frame(width: 22)
-
-                        Text(folder.name)
-                            .font(NotionTheme.font(14, weight: .medium))
-                            .foregroundStyle(NotionTheme.ink)
-                            .lineLimit(1)
-
-                        Spacer(minLength: 8)
-
-                        Text("\(folderItemCount(folder.id))")
-                            .font(NotionTheme.caption)
-                            .foregroundStyle(NotionTheme.inkTertiary)
-
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(NotionTheme.inkTertiary)
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text("Folders").font(.headline)
+                Spacer()
+                Text("\(visibleFolders.count)").font(.subheadline.monospacedDigit()).foregroundStyle(NotionTheme.inkSecondary)
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 24)], alignment: .leading, spacing: 24) {
+                ForEach(visibleFolders) { folder in
+                    Button {
+                        selection = .folder(folder.id); searchText = ""; expandAncestors(of: folder.id)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 14) {
+                            FolderArtwork(design: folder.displayDesign, symbol: folder.symbol ?? "books.vertical", imageData: folder.imageData)
+                                .padding(.horizontal, 8).padding(.top, 8)
+                            Text(folder.name).font(.subheadline.weight(.semibold)).foregroundStyle(NotionTheme.ink).lineLimit(2)
+                            Text("\(folderItemCount(folder.id)) \(folderItemCount(folder.id) == 1 ? "item" : "items")").font(.caption).foregroundStyle(NotionTheme.inkSecondary)
+                        }.padding(14).frame(maxWidth: .infinity, alignment: .leading).frostedPanel()
+                    }.buttonStyle(NotebookPressStyle()).accessibilityLabel("Open folder \(folder.name)")
+                    .contextMenu {
+                        Button("Customize folder", systemImage: "paintpalette") { present(.folderDesign(folder.id)) }
+                        Button("Rename", systemImage: "pencil") { present(.name(.renameFolder(folder.id))) }
+                        Button("New subfolder", systemImage: "folder.badge.plus") { present(.newFolder(folder.id)) }
+                        Button("Delete folder", systemImage: "trash", role: .destructive) { deleteTarget = .folder(folder.id) }
                     }
-                    .padding(.horizontal, 7)
-                    .frame(minHeight: 36)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(NotionRowButtonStyle())
-                .contextMenu {
-                    Button("Rename", systemImage: "pencil") {
-                        present(.name(.renameFolder(folder.id)))
-                    }
-                    Button("New subfolder", systemImage: "folder.badge.plus") {
-                        present(.name(.newFolder(parentID: folder.id)))
-                    }
-                    Button("Delete folder", systemImage: "trash", role: .destructive) {
-                        deleteTarget = .folder(folder.id)
+                    .dropDestination(for: String.self) { values, _ in
+                        guard let value = values.first, let id = UUID(uuidString: value), store.documents.contains(where: { $0.id == id }) else { return false }
+                        store.moveDocument(id: id, to: folder.id)
+                        return true
                     }
                 }
             }
         }
     }
 
+    @ViewBuilder
     private var documentList: some View {
+        if shelfView && searchText.isEmpty {
+            VStack(alignment: .leading, spacing: 18) {
+                Text(selection == .all && !visibleFolders.isEmpty ? "Unfiled notebooks" : "Notebooks").font(.headline)
+                notebookShelf
+            }
+        } else { documentRows }
+    }
+
+    private var notebookShelf: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 24)], alignment: .leading, spacing: 26) {
+            ForEach(visibleDocuments) { document in
+                VStack(alignment: .leading, spacing: 10) {
+                    NavigationLink(value: document.id) {
+                        if document.kind == .whiteboard {
+                            VStack(alignment: .leading, spacing: 18) {
+                                Image(systemName: "rectangle.and.pencil.and.ellipsis").font(.largeTitle).foregroundStyle(NotionTheme.accent)
+                                Spacer()
+                                Text(document.title).font(.headline).foregroundStyle(NotionTheme.ink)
+                                Text("Whiteboard").font(.caption).foregroundStyle(NotionTheme.inkSecondary)
+                            }.padding(20).frame(maxWidth: .infinity).aspectRatio(0.72, contentMode: .fit)
+                                .background(NotionTheme.card, in: RoundedRectangle(cornerRadius: 12))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(NotionTheme.hairline))
+                        } else {
+                        NotebookCoverView(title: document.title, cover: document.displayCover, image: store.coverImage(for: document))
+                            .shadow(color: .black.opacity(0.13), radius: 12, x: 0, y: 7)
+                        }
+                    }.buttonStyle(NotebookPressStyle())
+                    .draggable(document.id.uuidString)
+                        .simultaneousGesture(TapGesture().onEnded { recordRecent(document.id) })
+                        .contextMenu {
+                            if document.kind != .whiteboard {
+                                Button("Edit cover", systemImage: "book.closed") { present(.cover(document.id)) }
+                            }
+                            Button("Rename", systemImage: "pencil") { present(.name(.renameDocument(document.id))) }
+                            Button("Duplicate", systemImage: "plus.square.on.square") { duplicateDocument(document.id) }
+                            Button("Move to folder", systemImage: "folder") { present(.moveDocument(document.id)) }
+                            Button("Delete", systemImage: "trash", role: .destructive) { deleteTarget = .document(document.id) }
+                        }
+                    HStack(alignment: .top, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(document.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+                            Text("\(document.pages.count) \(document.pages.count == 1 ? "page" : "pages") · \(document.updatedAt.formatted(.relative(presentation: .named)))")
+                                .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                        Button { toggleFavorite(document.id) } label: {
+                            Image(systemName: isFavorite(document.id) ? "star.fill" : "star").foregroundStyle(isFavorite(document.id) ? .orange : NotionTheme.inkTertiary)
+                        }.buttonStyle(NotionIconButtonStyle()).accessibilityLabel(isFavorite(document.id) ? "Remove from Favorites" : "Add to Favorites")
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func duplicateDocument(_ id: UUID) {
+        do { _ = try store.duplicateDocument(id: id) } catch { alertMessage = error.localizedDescription }
+    }
+
+    private var documentRows: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 NotionSectionLabel(text: "Documents")
@@ -775,7 +820,8 @@ struct LibraryView: View {
     private var currentTitle: String {
         if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Search results" }
         switch selection {
-        case .all: return "Library"
+        case .all: return "Home"
+        case .search: return "Search"
         case .recents: return "Recents"
         case .favorites: return "Favorites"
         case .trash: return "Trash"
@@ -789,7 +835,9 @@ struct LibraryView: View {
         }
         switch selection {
         case .all:
-            return "Your notebooks and imported documents"
+            return ""
+        case .search:
+            return ""
         case .recents:
             return "Pages you have opened recently"
         case .favorites:
@@ -823,13 +871,13 @@ struct LibraryView: View {
         } else {
             switch selection {
             case .all:
-                candidates = store.documents
+                candidates = store.documents.filter { $0.folderID == nil }
             case .recents:
                 let recentPages = recentDocuments
                 return sortOrder == .edited ? recentPages : sortDocuments(recentPages)
             case .favorites:
                 candidates = favoriteDocuments
-            case .trash:
+            case .trash, .search:
                 candidates = []
             case .folder:
                 candidates = store.documents.filter { $0.folderID == selectedFolderID }
@@ -971,7 +1019,7 @@ struct LibraryView: View {
     private var folderRevisionSignature: String {
         store.folders
             .sorted { $0.id.uuidString < $1.id.uuidString }
-            .map { "\($0.id.uuidString):\($0.parentID?.uuidString ?? "root"): \($0.name)" }
+            .map { "\($0.id.uuidString):\($0.parentID?.uuidString ?? "root"): \($0.name):\($0.design?.style.rawValue ?? ""):\($0.design?.colorHex ?? ""):\($0.symbol ?? ""):\($0.updatedAt?.timeIntervalSince1970 ?? 0)" }
             .joined(separator: "|")
     }
 
@@ -1050,9 +1098,9 @@ struct LibraryView: View {
     private func sidebarDestination(_ title: String, symbol: String, count: Int) -> some View {
         HStack(spacing: 9) {
             Image(systemName: symbol)
-                .font(.system(size: 13))
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(NotionTheme.inkSecondary)
-                .frame(width: 18)
+                .frame(width: 24)
             Text(title)
                 .font(NotionTheme.body)
                 .foregroundStyle(NotionTheme.ink)
@@ -1070,7 +1118,7 @@ struct LibraryView: View {
     @ViewBuilder
     private func folderSidebarRow(_ row: FolderOutlineRow) -> some View {
         HStack(spacing: 2) {
-            if hasChildren(row.folder.id) {
+            if store.folders.contains(where: { $0.parentID == row.folder.id }) {
                 Button {
                     if expandedFolderIDs.contains(row.folder.id) {
                         expandedFolderIDs.remove(row.folder.id)
@@ -1095,29 +1143,31 @@ struct LibraryView: View {
                 expandAncestors(of: row.folder.id)
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: hasChildren(row.folder.id) ? "folder.fill" : "folder")
-                        .font(.system(size: 13))
-                        .foregroundStyle(NotionTheme.inkSecondary)
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 17))
+                        .foregroundStyle(Color(uiColor: UIColor(notyHex: row.folder.displayDesign.colorHex)))
                     Text(row.folder.name)
                         .font(NotionTheme.font(13))
                         .foregroundStyle(NotionTheme.ink)
                         .lineLimit(1)
                     Spacer(minLength: 3)
-                    let count = store.documents.filter { $0.folderID == row.folder.id }.count
+                    let count = folderItemCount(row.folder.id)
                     if count > 0 {
                         Text(count.formatted())
                             .font(NotionTheme.captionSmall)
                             .foregroundStyle(NotionTheme.inkTertiary)
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
-        .padding(.leading, CGFloat(row.depth) * 13)
+        .padding(.leading, CGFloat(row.depth) * 12)
+        .padding(.trailing, 12)
         .notionSidebarRow(isSelected: selectedFolderID == row.folder.id)
         .contextMenu {
+            Button("Customize folder", systemImage: "paintpalette") { present(.folderDesign(row.folder.id)) }
             Button("Rename", systemImage: "pencil") {
                 present(.name(.renameFolder(row.folder.id)))
             }
@@ -1181,6 +1231,7 @@ struct LibraryView: View {
     }
 
     private func recordRecent(_ documentID: UUID) {
+        selectedSearchResult = nil
         var ids = recentIDs.filter { $0 != documentID }
         ids.insert(documentID, at: 0)
         recentIDsValue = ids.prefix(30).map(\.uuidString).joined(separator: ",")
@@ -1190,6 +1241,7 @@ struct LibraryView: View {
         switch kind {
         case .note, .book: "book.closed"
         case .pdf: "doc.richtext"
+        case .whiteboard: "rectangle.and.pencil.and.ellipsis"
         }
     }
 
@@ -1197,13 +1249,12 @@ struct LibraryView: View {
         switch kind {
         case .note, .book: "Notebook"
         case .pdf: "PDF"
+        case .whiteboard: "Whiteboard"
         }
     }
 
     private func createNotebook() {
-        let document = store.createDocument(title: "Untitled Notebook", kind: .book, folderID: selectedFolderID)
-        activeSheet = nil
-        openEditor(document.id)
+        present(.newNotebook(selectedFolderID))
     }
 
     private func openEditor(_ documentID: UUID) {
@@ -1218,6 +1269,35 @@ struct LibraryView: View {
     @ViewBuilder
     private func sheet(for destination: LibrarySheetRequest.Destination) -> some View {
         switch destination {
+        case .newFolder(let parentID):
+            FolderDesignSheet { name, design, symbol, imageData in store.createFolder(name: name, parentID: parentID, design: design, symbol: symbol, imageData: imageData) }
+        case .folderDesign(let id):
+            if let folder = store.folders.first(where: { $0.id == id }) {
+                FolderDesignSheet(folder: folder) { name, design, symbol, imageData in
+                    store.renameFolder(id: id, name: name)
+                    store.updateFolderDesign(id: id, design: design, symbol: symbol, imageData: imageData)
+                }
+            }
+        case .newWhiteboard(let folderID):
+            NameEntrySheet(title: "New whiteboard", placeholder: "Whiteboard name", initialValue: "Untitled whiteboard") { title in
+                let document = store.createDocument(title: title, kind: .whiteboard, folderID: folderID)
+                openEditor(document.id)
+            }
+        case .newNotebook(let folderID):
+            NotebookDesignSheet(purpose: .notebook) { title, page, cover, imageData in
+                let document = store.createDocument(title: title, kind: .book, folderID: folderID, firstPage: page, cover: cover)
+                if let imageData {
+                    do { try store.updateCover(documentID: document.id, cover: cover, imageData: imageData) } catch { alertMessage = error.localizedDescription }
+                }
+                openEditor(document.id)
+            }
+        case .cover(let id):
+            if let document = store.documents.first(where: { $0.id == id }) {
+                NotebookDesignSheet(purpose: .cover, initialTitle: document.title, initialCover: document.displayCover, existingCoverImage: store.coverImage(for: document)) { title, _, cover, imageData in
+                    store.renameDocument(id: id, title: title)
+                    do { try store.updateCover(documentID: id, cover: cover, imageData: imageData) } catch { alertMessage = error.localizedDescription }
+                }
+            }
         case .name(let purpose):
             switch purpose {
             case .newFolder(let parentID):
@@ -1573,6 +1653,7 @@ private struct FolderOutlineRow {
 
 private enum LibrarySelection: Hashable {
     case all
+    case search
     case recents
     case favorites
     case trash
@@ -1615,6 +1696,11 @@ private struct LibrarySheetRequest: Identifiable {
             case renameDocument(UUID)
         }
 
+        case newFolder(UUID?)
+        case folderDesign(UUID)
+        case newNotebook(UUID?)
+        case newWhiteboard(UUID?)
+        case cover(UUID)
         case name(NamePurpose)
         case moveDocument(UUID)
         case settings
@@ -1786,9 +1872,23 @@ private struct LibrarySettingsView: View {
     @State private var sharedFolderLinkDraft = ""
     @State private var accountEmail = ""
     @State private var accountPassword = ""
+    @State private var isDeletingAccount = false
+    @AppStorage("noty.editor.fingerDrawing") private var fingerDrawing = false
+    @AppStorage("noty.editor.toolbarDock") private var toolbarDock = "top"
 
     var body: some View {
         Form {
+            Section("Writing") {
+                Toggle("Draw with finger", isOn: $fingerDrawing)
+                Picker("Toolbar position", selection: $toolbarDock) {
+                    ForEach(["top", "bottom", "left", "right"], id: \.self) { Text($0.capitalized).tag($0) }
+                }
+                Text("Apple Pencil is always available. Turn off finger drawing to use your fingers for page navigation.").font(.caption).foregroundStyle(.secondary)
+            }
+            Section("About") {
+                NavigationLink("Privacy", destination: NotyPrivacyView())
+                Text("Noty works offline. Choose a sync folder to keep an editable copy across your devices.").font(.caption).foregroundStyle(.secondary)
+            }
             Section {
                 if account.isAuthenticated {
                     LabeledContent("Signed in", value: account.email ?? "Noty account")
@@ -1804,6 +1904,8 @@ private struct LibrarySettingsView: View {
                     Button("Refresh account data", systemImage: "arrow.clockwise") {
                         Task { await account.refreshProfile() }
                     }
+                    Button("Delete account", systemImage: "person.crop.circle.badge.minus", role: .destructive) { isDeletingAccount = true }
+                        .disabled(account.isWorking)
                     Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                         Task {
                             await account.signOut()
@@ -1840,7 +1942,7 @@ private struct LibrarySettingsView: View {
             } header: {
                 Text("Noty Account")
             } footer: {
-                Text("Your account is backed by Supabase Auth + Postgres. Noty stores only workspace metadata here, such as the iCloud sharing link and folder name. Notes remain in your selected sync folder.")
+                Text("Your account remembers your sync folder setup across devices. Your notebooks stay on your device and in the folder you choose.")
             }
 
             if let persistenceError = store.lastPersistenceError, !persistenceError.isEmpty {
@@ -1930,7 +2032,7 @@ private struct LibrarySettingsView: View {
             } header: {
                 Text("Sync with Folder")
             } footer: {
-                Text("Sign in to the same Noty account on another device and the saved workspace link/folder name comes from the backend automatically. iOS still requires each Apple device to approve the Files folder once. Prefer “People You Choose”; an “Anyone with the link” editable share can be modified by anyone who gets that URL.")
+                Text("Sign in on another device to find your saved workspace, then choose its folder in Files. Use a private folder or share with people you choose to keep your notes private.")
             }
 
             Section {
@@ -1969,6 +2071,7 @@ private struct LibrarySettingsView: View {
         .scrollContentBackground(.hidden)
         .background(NotionTheme.canvas)
         .tint(NotionTheme.accent)
+        .sheet(isPresented: $isDeletingAccount) { DeleteNotyAccountSheet(account: account) }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(NotionTheme.canvas, for: .navigationBar)
@@ -2202,4 +2305,13 @@ private func displayICloudMirrorStatus(_ status: String) -> String {
     guard status.hasPrefix(prefix) else { return status }
     let timestamp = status.dropFirst(prefix.count).components(separatedBy: ";").first ?? ""
     return "Library synced with the selected Files folder at \(timestamp). Its provider controls any cloud upload."
+}
+
+private struct NotebookPressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .animation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.85), value: configuration.isPressed)
+    }
 }

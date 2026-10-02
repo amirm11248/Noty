@@ -1,3 +1,4 @@
+import Combine
 import PDFKit
 import PencilKit
 import PhotosUI
@@ -7,14 +8,45 @@ import UIKit
 struct DocumentEditorView: View {
     let documentID: UUID
     let store: NotyStore
+    var initialPageID: UUID? = nil
 
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @StateObject private var canvasController = InkCanvasController()
+    @State private var objectHistory = NotyPageObjectHistory()
+    @StateObject private var canvasSessions = NotebookCanvasSessions()
+    @State private var pageNavigationRequest: PageNavigationRequest?
+    @State private var isSelectingExportPages = false
+    @State private var pendingExportPageIDs: Set<UUID>?
+    @State private var isArrangingPages = false
+
+    private var canvasController: InkCanvasController { canvasSessions.controller(for: selectedPage?.id) }
+    @AppStorage("noty.study.focusEndsAt") private var focusEndsAt = 0.0
+    @AppStorage("noty.editor.fingerDrawing") private var fingerDrawing = false
+    @State private var drawingTool: EditorDrawingTool = .ink
+    @State private var isAddingPage = false
+    @State private var isEditingCover = false
+    @State private var isShowingStudyTools = false
+    @State private var isShowingAudio = false
+    @State private var lectureAudio = LectureAudioController()
+    @State private var isShowingImageImporter = false
+    @State private var croppingImage: NotyPageImage?
+    @State private var isSearching = false
+    @State private var activeToolSettings: EditorToolSettings?
+    @State private var documentSearch = ""
+    @State private var bookmarkPage: NotyPage?
+    @State private var bookmarkName = ""
     @State private var selectedPageID: UUID?
     @State private var selectedTextBoxID: UUID?
     @State private var editingTextBoxID: UUID?
     @State private var selectedImageID: UUID?
+    @State private var lassoSelection: NotyPageSelection?
+    @AppStorage("noty.editor.lassoShape") private var lassoShapeValue = NotyLassoShape.freehand.rawValue
+    @AppStorage("noty.editor.lassoInk") private var lassoIncludesInk = true
+    @AppStorage("noty.editor.lassoText") private var lassoIncludesText = true
+    @AppStorage("noty.editor.lassoPhotos") private var lassoIncludesPhotos = true
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isPresentationMode = false
     @State private var isPresenterControlsVisible = true
@@ -33,10 +65,16 @@ struct DocumentEditorView: View {
     @State private var zoomScale: CGFloat = 1
     @State private var zoomBaseScale: CGFloat = 1
     @State private var inkType: EditorInkType = .ballPen
-    @State private var inkColorHex = "37352F"
+    @State private var lastPenType: EditorInkType = .ballPen
+    @AppStorage("noty.editor.eraserWidth") private var eraserWidth = 20.0
+    @AppStorage("noty.editor.eraseWholeStrokes") private var eraseWholeStrokes = false
+    @AppStorage("noty.editor.highlighterWidth") private var highlighterWidth = 12.0
+    @AppStorage("noty.editor.highlighterOpacity") private var highlighterOpacity = 0.38
+    @AppStorage("noty.editor.shapeCorrection") private var shapeCorrectionEnabled = true
+    @State private var inkColorHex = "222222"
     @State private var inkWidth = 2.5
     @State private var inkOpacity = 1.0
-    @AppStorage("noty.editor.customInkColors") private var customInkColorsStorage = "37352F,D34836,2383E2,2F8F4E,E3A008"
+    @AppStorage("noty.editor.customInkColors") private var customInkColorsStorage = "222222,326BB8,C45C55"
 
     private var document: NotyDocument? {
         store.documents.first { $0.id == documentID }
@@ -46,6 +84,12 @@ struct DocumentEditorView: View {
         guard let document else { return nil }
         return document.pages.first { $0.id == selectedPageID } ?? document.pages.first
     }
+
+    private var currentPaper: NotyPage {
+        if let selectedPage, !selectedPage.isCover { return selectedPage }
+        return document?.pages.first(where: { !$0.isCover }) ?? NotyPage(template: .ruled)
+    }
+
 
     var body: some View {
         Group {
@@ -59,12 +103,69 @@ struct DocumentEditorView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden()
         .onAppear(perform: selectInitialPage)
+        .onDisappear { canvasSessions.flushAll(); store.removeUnusedPhotoAssets(documentID: documentID); lectureAudio.stopRecording(); lectureAudio.stopPlayback() }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { canvasSessions.flushAll() }; if phase == .background { lectureAudio.stopRecording(); lectureAudio.stopPlayback() } }
+        .onChange(of: selectedPageID) { _, _ in
+            activeToolSettings = nil
+        }
+        .onChange(of: drawingTool) { _, tool in if tool != .lasso { lassoSelection = nil } }
+        .onChange(of: canvasController.undoRevision) { _, _ in lassoSelection = nil }
+        .sheet(item: $croppingImage) { image in
+            if let page = selectedPage, let original = store.originalPageImage(documentID: documentID, pageID: page.id, image: image) {
+                ImageCropSheet(image: original, pageImage: image) { updated in updatePageImage(page, imageID: image.id) { $0 = updated } }
+            }
+        }
+        .sheet(isPresented: $isSearching) {
+            NotebookSearchSheet(documentID: documentID, store: store) { pageID in
+                navigate(to: pageID)
+            }
+        }
+        .alert("Name bookmark", isPresented: Binding(get: { bookmarkPage != nil }, set: { if !$0 { bookmarkPage = nil } })) {
+            TextField("Section title", text: $bookmarkName)
+            Button("Save") { if let page = bookmarkPage { store.updatePageBookmark(documentID: documentID, pageID: page.id, isBookmarked: true, title: bookmarkName) }; bookmarkPage = nil }
+            Button("Cancel", role: .cancel) { bookmarkPage = nil }
+        }
+        .sheet(isPresented: $isSelectingExportPages, onDismiss: {
+            if let pageIDs = pendingExportPageIDs { pendingExportPageIDs = nil; exportPDF(selectedPageIDs: pageIDs) }
+        }) {
+            NotebookPageExportSheet(documentID: documentID, store: store, sourcePDF: sourcePDF, initialPageID: selectedPage?.id) { pageIDs in pendingExportPageIDs = pageIDs }
+        }
+        .sheet(isPresented: $isArrangingPages) { NotebookPageArrangementSheet(documentID: documentID, store: store) }
+        .sheet(isPresented: $isAddingPage) {
+            NotebookDesignSheet(purpose: .page, initialPage: currentPaper) { _, page, _, _ in
+                addPage(template: page.template, format: page)
+            }
+        }
+        .sheet(isPresented: $isEditingCover) {
+            if let document {
+                NotebookDesignSheet(purpose: .cover, initialTitle: document.title, initialCover: document.displayCover, existingCoverImage: store.coverImage(for: document)) { title, _, cover, imageData in
+                    store.renameDocument(id: documentID, title: title)
+                    do { try store.updateCover(documentID: documentID, cover: cover, imageData: imageData) } catch { imageImportError = error.localizedDescription }
+                }
+            }
+        }
+        .sheet(isPresented: $isShowingAudio) {
+            LectureAudioSheet(documentID: documentID, pageID: selectedPage?.id, store: store, controller: lectureAudio) { pageID in navigate(to: pageID) }
+        }
+        .sheet(isPresented: $isShowingStudyTools) {
+            StudyToolsSheet(documentID: documentID, store: store, selectedText: selectedPage?.textBoxes.first(where: { $0.id == selectedTextBoxID })?.text)
+        }
+        .fileImporter(isPresented: $isShowingImageImporter, allowedContentTypes: [.image]) { result in
+            do {
+                let url = try result.get()
+                let granted = url.startAccessingSecurityScopedResource()
+                defer { if granted { url.stopAccessingSecurityScopedResource() } }
+                guard let page = selectedPage else { return }
+                let image = try objectHistory.addImage(store: store, undoManager: canvasController.undoManager, data: Data(contentsOf: url), documentID: documentID, pageID: page.id)
+                selectedImageID = image.id; drawingTool = .hand
+            } catch { imageImportError = error.localizedDescription }
+        }
         .task(id: documentID) {
             sourcePDF = store.sourcePDF(documentID: documentID)
         }
         .onChange(of: document?.pages.map(\.id) ?? []) { _, pageIDs in
             if selectedPageID.map(pageIDs.contains) != true {
-                selectedPageID = pageIDs.first
+                if let first = pageIDs.first { navigate(to: first) } else { selectedPageID = nil }
                 selectedTextBoxID = nil
                 editingTextBoxID = nil
                 selectedImageID = nil
@@ -79,11 +180,13 @@ struct DocumentEditorView: View {
                           let page = selectedPage else {
                         throw NotyStoreError.invalidImage
                     }
-                    let image = try store.addPageImage(data: data, documentID: documentID, pageID: page.id)
+                    let image = try objectHistory.addImage(store: store, undoManager: canvasController.undoManager, data: data, documentID: documentID, pageID: page.id)
+                    activeToolSettings = nil
                     selectedImageID = image.id
                     selectedTextBoxID = nil
                     editingTextBoxID = nil
                     isToolPickerVisible = false
+                    drawingTool = .hand
                 } catch {
                     imageImportError = error.localizedDescription
                 }
@@ -135,26 +238,36 @@ struct DocumentEditorView: View {
             if isPresentationMode {
                 presentation(document)
             } else {
-                VStack(spacing: 0) {
-                    header(document)
-                    Rectangle().fill(EditorPalette.border).frame(height: 1)
-                    HStack(spacing: 0) {
-                        if isShowingThumbnails && horizontalSizeClass != .compact {
-                            thumbnailRail(document, sourcePDF: sourcePDF)
-                            Rectangle().fill(EditorPalette.border).frame(width: 1)
-                        }
-
-                        VStack(spacing: 0) {
-                            pageToolbar(document)
-                            Rectangle().fill(EditorPalette.border).frame(height: 1)
-                            canvasArea(document, sourcePDF: sourcePDF)
-                        }
+                HStack(spacing: 0) {
+                    if isShowingThumbnails && document.kind != .whiteboard {
+                        thumbnailRail(document, sourcePDF: sourcePDF)
+                            .padding(.top, 48)
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                        Rectangle().fill(EditorPalette.border).frame(width: 1)
                     }
+                    canvasArea(document, sourcePDF: sourcePDF)
+                        .overlay {
+                            FloatingNotebookToolbar(onDragBegan: { activeToolSettings = nil }) { vertical, compact in
+                                toolbarContents(document, vertical: vertical, compact: compact)
+                            }.padding(.top, horizontalSizeClass == .compact ? 48 : 0)
+                        }
+                        .overlay(alignment: .leading) {
+                            if !isShowingThumbnails && document.kind != .whiteboard {
+                                Color.clear.frame(width: 24).contentShape(Rectangle())
+                                    .gesture(DragGesture(minimumDistance: 16).onEnded { value in
+                                        if value.translation.width > 55 && abs(value.translation.width) > abs(value.translation.height) { togglePageSidebar() }
+                                    })
+                                    .accessibilityLabel("Show pages").accessibilityAction { togglePageSidebar() }
+                            }
+                        }
                 }
+                .overlay(alignment: .top) { header(document) }
+
             }
         }
-        .statusBarHidden(isPresentationMode)
-        .persistentSystemOverlays(isPresentationMode ? .hidden : .automatic)
+        .ignoresSafeArea(.container, edges: UIDevice.current.userInterfaceIdiom == .pad ? .vertical : .bottom)
+        .statusBarHidden(true)
+        .persistentSystemOverlays(.hidden)
         .foregroundStyle(EditorPalette.ink)
     }
 
@@ -310,111 +423,61 @@ struct DocumentEditorView: View {
     }
 
     private func header(_ document: NotyDocument) -> some View {
-        HStack(spacing: 7) {
-            Button { dismiss() } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 30, height: 30)
-            }
-            .buttonStyle(NotionIconButtonStyle())
-            .accessibilityLabel("Back to library")
-
-            Text("Noty")
-                .font(NotionTheme.caption)
-                .foregroundStyle(EditorPalette.secondaryInk)
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(NotionTheme.inkTertiary)
-
-            Image(systemName: document.kind.editorSymbolName)
-                .font(.system(size: 12))
-                .foregroundStyle(EditorPalette.secondaryInk)
-
-            Button {
-                renameTitle = document.title
-                isShowingRename = true
-            } label: {
-                Text(document.title)
-                    .font(NotionTheme.font(13, weight: .medium))
-                    .foregroundStyle(EditorPalette.ink)
-                    .lineLimit(1)
-                    .padding(.horizontal, 4)
-                    .frame(height: 28)
-            }
-            .buttonStyle(NotionRowButtonStyle())
-            .accessibilityHint("Rename document")
-
-            Spacer(minLength: 10)
-
-            Button {
-                withAnimation(.easeInOut(duration: 0.16)) {
-                    isShowingThumbnails.toggle()
-                }
-            } label: {
-                Image(systemName: "sidebar.left")
-                    .font(.system(size: 13))
-                    .frame(width: 30, height: 30)
-            }
-            .buttonStyle(NotionIconButtonStyle())
-            .accessibilityLabel(isShowingThumbnails ? "Hide page thumbnails" : "Show page thumbnails")
-
+        HStack {
+            Button { canvasSessions.flushAll(); dismiss() } label: {
+                Image(systemName: "chevron.left").font(.system(size: 16, weight: .semibold))
+                    .frame(width: 44, height: 44)
+                    .background(.regularMaterial, in: Circle())
+            }.buttonStyle(NotionIconButtonStyle()).accessibilityLabel("Back to Home")
+            Spacer()
             Menu {
-                ForEach(NotyPageTemplate.allCases, id: \.self) { template in
-                    Button {
-                        addPage(template: template)
-                    } label: {
-                        Label(template.editorLabel, systemImage: template.symbolName)
+                Button(isShowingThumbnails ? "Hide pages" : "Show pages", systemImage: "sidebar.left") { togglePageSidebar() }
+                    .disabled(document.kind == .whiteboard)
+                Button("Search notebook", systemImage: "magnifyingglass") { canvasSessions.flushAll(); isSearching = true }
+                if document.kind != .whiteboard {
+                    Menu("Add page", systemImage: "plus") {
+                        Button("Use current paper", systemImage: "doc.badge.plus") { addPage(template: currentPaper.template) }
+                        Button("Choose design…", systemImage: "square.grid.2x2") { isAddingPage = true }
+                    }
+                    Button("Arrange pages", systemImage: "arrow.up.arrow.down") { canvasSessions.flushAll(); isArrangingPages = true }
+                    Button("Present", systemImage: "play.rectangle") { startPresentation() }
+                }
+                Menu("Export", systemImage: "square.and.arrow.up") {
+                    Button(document.kind == .whiteboard ? "Export whiteboard as PDF" : "Export all pages as PDF", systemImage: "doc.richtext") { exportPDF() }
+                    if document.kind != .whiteboard {
+                        Button("Export selected pages…", systemImage: "checkmark.square") { canvasSessions.flushAll(); isSelectingExportPages = true }
+                    }
+                    Button(document.kind == .whiteboard ? "Export whiteboard as image" : "Export current page as image", systemImage: "photo") { exportPageImage() }
+                }
+                if document.kind == .whiteboard, let page = selectedPage {
+                    Menu("Board background", systemImage: "paintpalette") {
+                        NotebookPaperMenus(documentID: documentID, page: page, store: store, isInfinite: true, prepare: { canvasSessions.flushAll() })
                     }
                 }
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 30, height: 30)
-            }
-            .buttonStyle(NotionIconButtonStyle())
-            .accessibilityLabel("Add page")
-
-            Button {
-                withAnimation(.easeInOut(duration: 0.16)) {
-                    isPresenterControlsVisible = true
-                    isLaserPointerEnabled = false
-                    presenterLaserLocation = nil
-                    isPresenterBlackout = false
-                    isPresentationMode = true
+                Section(document.title) {
+                    Button("Rename", systemImage: "pencil") { renameTitle = document.title; isShowingRename = true }
+                    if document.kind != .whiteboard { Button("Edit cover", systemImage: "book.closed") { isEditingCover = true } }
+                    Button("Lecture audio", systemImage: "mic") { isShowingAudio = true }
+                    Button("Study tools", systemImage: "rectangle.on.rectangle") { isShowingStudyTools = true }
                 }
             } label: {
-                Image(systemName: "play.rectangle")
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 30, height: 30)
-            }
-            .buttonStyle(NotionIconButtonStyle())
-            .accessibilityLabel("Present document")
-
-            Menu {
-                Button {
-                    exportPDF()
-                } label: {
-                    Label("Export as PDF", systemImage: "doc.richtext")
-                }
-                if selectedPage != nil {
-                    Button {
-                        exportPageImage()
-                    } label: {
-                        Label("Export current page as image", systemImage: "photo")
-                    }
-                }
-            } label: {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 30, height: 30)
-            }
-            .buttonStyle(NotionIconButtonStyle())
-            .accessibilityLabel("Export document")
+                Image(systemName: "ellipsis").font(.system(size: 18, weight: .medium)).frame(width: 44, height: 44)
+                    .background(.regularMaterial, in: Circle())
+            }.buttonStyle(NotionIconButtonStyle()).accessibilityLabel("Document options").accessibilityIdentifier("editor.documentOptions")
         }
-        .padding(.horizontal, 12)
-        .frame(height: 46)
-        .background(NotionTheme.canvas)
+        .padding(.horizontal, 8)
+        .frame(height: 48)
+    }
+
+    private func startPresentation() {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.16)) {
+            isPresenterControlsVisible = true; isLaserPointerEnabled = false
+            presenterLaserLocation = nil; isPresenterBlackout = false; isPresentationMode = true
+        }
+    }
+
+    private func togglePageSidebar() {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { isShowingThumbnails.toggle() }
     }
 
     private func thumbnailRail(_ document: NotyDocument, sourcePDF: PDFDocument?) -> some View {
@@ -439,9 +502,15 @@ struct DocumentEditorView: View {
                             sourcePDF: sourcePDF,
                             isSelected: page.id == selectedPage?.id
                         ) {
-                            selectedPageID = page.id
-                            selectedTextBoxID = nil
-                            editingTextBoxID = nil
+                            navigate(to: page.id)
+                        }
+                        .overlay(alignment: .topTrailing) {
+                            Menu { pageActions(page, in: document) } label: {
+                                Image(systemName: "ellipsis").font(.system(size: 14, weight: .semibold))
+                                    .frame(width: 30, height: 28)
+                                    .background(NotionTheme.card.opacity(0.95), in: RoundedRectangle(cornerRadius: 8))
+                            }.buttonStyle(.plain).padding(5)
+                                .accessibilityLabel("Page \(index + 1) options").accessibilityIdentifier("editor.pageOptions.\(page.id)")
                         }
                         .draggable(page.id.uuidString)
                         .dropDestination(for: String.self) { values, _ in
@@ -449,28 +518,18 @@ struct DocumentEditorView: View {
                                   let fromID = UUID(uuidString: value),
                                   let fromIndex = document.pages.firstIndex(where: { $0.id == fromID }),
                                   let toIndex = document.pages.firstIndex(where: { $0.id == page.id }),
+                                  !document.pages[fromIndex].isCover, !page.isCover,
                                   fromIndex != toIndex else { return false }
                             let destination = toIndex > fromIndex ? toIndex + 1 : toIndex
                             store.movePage(documentID: documentID, from: IndexSet(integer: fromIndex), to: destination)
                             return true
                         }
-                        .contextMenu {
-                            Button {
-                                selectedPageID = page.id
-                                addPage(template: page.template)
-                            } label: {
-                                Label("Add page after", systemImage: "plus.rectangle.on.rectangle")
-                            }
-                            Button(role: .destructive) {
-                                store.deletePage(documentID: documentID, pageID: page.id)
-                            } label: {
-                                Label("Delete page", systemImage: "trash")
-                            }
-                        }
+                        .contextMenu { pageActions(page, in: document) }
                     }
 
-                    Button {
-                        addPage(template: .blank)
+                    Menu {
+                        Button("Use current paper", systemImage: "doc.badge.plus") { addPage(template: currentPaper.template) }
+                        Button("Choose a different design…", systemImage: "square.grid.2x2") { isAddingPage = true }
                     } label: {
                         Label("New page", systemImage: "plus")
                             .font(NotionTheme.bodySmall)
@@ -486,275 +545,216 @@ struct DocumentEditorView: View {
         }
         .padding(11)
         .frame(width: 184)
-        .background(EditorPalette.rail)
+        .background(NotionTheme.sidebar)
+        .simultaneousGesture(DragGesture(minimumDistance: 20).onEnded { value in
+            if value.translation.width < -55 && abs(value.translation.width) > abs(value.translation.height) { togglePageSidebar() }
+        })
+        .accessibilityHint("Swipe left to hide pages. Drag a page to reorder it.")
     }
 
-    private func pageToolbar(_ document: NotyDocument) -> some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 5) {
-                Button { moveSelection(in: document, by: -1) } label: {
-                    Image(systemName: "chevron.left")
+    @ViewBuilder
+    private func pageActions(_ page: NotyPage, in document: NotyDocument) -> some View {
+        NotebookPaperMenus(documentID: documentID, page: page, store: store,
+                           prepare: { canvasSessions.flushAll() }, editCover: { isEditingCover = true })
+        Section {
+            Button(page.isBookmarked ? "Remove bookmark" : "Bookmark", systemImage: "bookmark") {
+                store.updatePageBookmark(documentID: documentID, pageID: page.id, isBookmarked: !page.isBookmarked)
+            }
+            Button("Name bookmark", systemImage: "bookmark.fill") { bookmarkPage = page; bookmarkName = page.bookmarkTitle ?? "" }
+            Button("Add page after", systemImage: "plus.rectangle.on.rectangle") { activate(page.id); addPage(template: page.template) }
+            Button("Duplicate page", systemImage: "plus.square.on.square") { canvasSessions.flushAll(); duplicatePage(page) }.disabled(page.isCover)
+            Button("Move earlier", systemImage: "arrow.up") { movePage(page, in: document, by: -1) }
+                .disabled(page.isCover || (document.pages.firstIndex(where: { $0.id == page.id }) ?? 0) <= (document.pages.first?.isCover == true ? 1 : 0))
+            Button("Move later", systemImage: "arrow.down") { movePage(page, in: document, by: 1) }
+                .disabled(page.isCover || page.id == document.pages.last?.id)
+            Button("Arrange pages…", systemImage: "arrow.up.arrow.down") { canvasSessions.flushAll(); isArrangingPages = true }
+            Button("Export this page as PDF", systemImage: "square.and.arrow.up") {
+                canvasSessions.flushAll()
+                do { shareURL = try NotyExportService.exportPDF(documentID: documentID, store: store, selectedPageIDs: [page.id]) }
+                catch { exportError = error.localizedDescription }
+            }
+            Button("Delete page", systemImage: "trash", role: .destructive) { canvasSessions.flushAll(); store.deletePage(documentID: documentID, pageID: page.id) }.disabled(page.isCover)
+        }
+    }
+
+    private func movePage(_ page: NotyPage, in document: NotyDocument, by offset: Int) {
+        guard let index = document.pages.firstIndex(where: { $0.id == page.id }) else { return }
+        let destination = index + offset
+        guard document.pages.indices.contains(destination) else { return }
+        canvasSessions.flushAll()
+        store.movePage(documentID: documentID, from: IndexSet(integer: index), to: destination > index ? destination + 1 : destination)
+    }
+
+    private func toolbarContents(_ document: NotyDocument, vertical: Bool, compact: Bool) -> some View {
+        let layout = vertical ? AnyLayout(VStackLayout(spacing: 2)) : AnyLayout(HStackLayout(spacing: 2))
+        return layout {
+            Button { editingTextBoxID = nil; lassoSelection = nil; canvasController.undo() } label: { Image(systemName: "arrow.uturn.backward") }
+                .disabled(!canvasController.canUndo).accessibilityLabel("Undo")
+            Button { editingTextBoxID = nil; lassoSelection = nil; canvasController.redo() } label: { Image(systemName: "arrow.uturn.forward") }
+                .disabled(!canvasController.canRedo).accessibilityLabel("Redo")
+            toolbarDivider(vertical: vertical)
+            Button {
+                if drawingTool == .ink && inkType != .highlighter { activeToolSettings = .pen }
+                else { selectDrawingTool(.ink); inkType = lastPenType }
+            } label: { Image(systemName: "pencil.tip") }
+                .buttonStyle(NotebookToolButtonStyle(isSelected: drawingTool == .ink && inkType != .highlighter, compact: compact))
+                .accessibilityLabel("Pen").accessibilityHint("Tap again for pen type, thickness and color")
+                .popover(isPresented: settingsPresented(.pen)) { inkSettingsPopover(highlighter: false) }
+            Button {
+                if drawingTool == .ink && inkType == .highlighter { activeToolSettings = .highlighter }
+                else { if inkType != .highlighter { lastPenType = inkType }; selectDrawingTool(.ink); inkType = .highlighter }
+            } label: { Image(systemName: "highlighter") }
+                .buttonStyle(NotebookToolButtonStyle(isSelected: drawingTool == .ink && inkType == .highlighter, compact: compact))
+                .accessibilityLabel("Highlighter").accessibilityHint("Tap again for highlighter settings")
+                .popover(isPresented: settingsPresented(.highlighter)) { inkSettingsPopover(highlighter: true) }
+            Button {
+                if drawingTool == .eraser { activeToolSettings = .eraser }
+                else { selectDrawingTool(.eraser) }
+            } label: { Image(systemName: "eraser") }
+                .buttonStyle(NotebookToolButtonStyle(isSelected: drawingTool == .eraser, compact: compact))
+                .accessibilityLabel("Eraser").accessibilityHint("Tap again for eraser size and mode")
+                .popover(isPresented: settingsPresented(.eraser)) { eraserSettingsPopover }
+            Button {
+                if drawingTool == .lasso { activeToolSettings = .lasso }
+                else { selectDrawingTool(.lasso) }
+            } label: { Image(systemName: "lasso") }
+                .buttonStyle(NotebookToolButtonStyle(isSelected: drawingTool == .lasso, compact: compact))
+                .accessibilityLabel("Lasso selection").accessibilityHint("Tap again for selection settings")
+                .popover(isPresented: settingsPresented(.lasso)) { lassoSettingsPopover }
+            Button {
+                if selectedTextBoxID != nil { activeToolSettings = .text }
+                else { selectDrawingTool(.hand); addTextBox() }
+            } label: { Image(systemName: "textformat") }
+                .buttonStyle(NotebookToolButtonStyle(isSelected: selectedTextBoxID != nil, compact: compact))
+                .disabled(selectedPage == nil).accessibilityLabel("Text")
+                .popover(isPresented: settingsPresented(.text)) { textSettingsPopover }
+            Button { activeToolSettings = .photo } label: { Image(systemName: "photo") }
+                .buttonStyle(NotebookToolButtonStyle(isSelected: selectedImageID != nil, compact: compact))
+                .disabled(selectedPage == nil).accessibilityLabel("Photos")
+                .popover(isPresented: settingsPresented(.photo)) { photoSettingsPopover }
+            Button {
+                if drawingTool == .hand && selectedTextBoxID == nil && selectedImageID == nil { activeToolSettings = .hand }
+                else { selectDrawingTool(.hand) }
+            } label: { Image(systemName: "hand.draw") }
+                .buttonStyle(NotebookToolButtonStyle(isSelected: drawingTool == .hand && selectedTextBoxID == nil && selectedImageID == nil, compact: compact))
+                .accessibilityLabel("Pan and select objects")
+                .popover(isPresented: settingsPresented(.hand)) {
+                    NotebookToolSettings(title: "Navigation") {
+                        Toggle("Draw with finger", isOn: $fingerDrawing)
+                        Text("Drag to move around the page. Pinch with two fingers to zoom. Tap text or a photo to select it.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }.presentationCompactAdaptation(.popover)
                 }
-                .disabled(selectedPageIndex(in: document) == 0)
-                .accessibilityLabel("Previous page")
+            if !compact {
+            toolbarDivider(vertical: vertical)
+            ForEach(Array(customInkColors.prefix(3)), id: \.self) { colorHex in
+                Button { inkColorHex = colorHex } label: {
+                    Circle().fill(Color(hex: colorHex)).frame(width: 21, height: 21)
+                        .overlay(Circle().stroke(NotionTheme.ink.opacity(0.22), lineWidth: 1))
+                        .padding(3)
+                        .overlay(Circle().stroke(inkColorHex == colorHex ? NotionTheme.ink : .clear, lineWidth: 2))
+                        .frame(width: 32, height: 36)
+                }.buttonStyle(.plain).accessibilityLabel("\(colorName(for: colorHex)) ink")
+                    .accessibilityAddTraits(inkColorHex == colorHex ? .isSelected : [])
+            }
+            toolbarDivider(vertical: vertical)
+            ForEach(widthPresets, id: \.self) { width in
+                Button { activeWidth.wrappedValue = width } label: {
+                    Circle().fill(NotionTheme.ink).frame(width: min(max(width, 4), 14), height: min(max(width, 4), 14))
+                        .frame(width: 26, height: 26)
+                        .background(NotionTheme.ink.opacity(abs(activeWidth.wrappedValue - width) < 0.1 ? 0.16 : 0), in: Circle())
+                        .overlay(Circle().stroke(abs(activeWidth.wrappedValue - width) < 0.1 ? NotionTheme.ink.opacity(0.75) : .clear, lineWidth: 1.5))
+                        .frame(width: 32, height: 36)
+                }.buttonStyle(.plain).accessibilityLabel("\(width.formatted()) point thickness")
+                    .accessibilityAddTraits(abs(activeWidth.wrappedValue - width) < 0.1 ? .isSelected : [])
+            }
+            toolbarDivider(vertical: vertical)
+            }
+            editorOptions(document)
+        }
+        .buttonStyle(NotebookToolButtonStyle(compact: compact))
+    }
 
-                Text("\((selectedPageIndex(in: document) ?? 0) + 1) / \(max(document.pages.count, 1))")
-                    .font(NotionTheme.font(12, weight: .medium).monospacedDigit())
-                    .foregroundStyle(EditorPalette.secondaryInk)
-                    .frame(minWidth: 44)
-                    .accessibilityLabel("Page \((selectedPageIndex(in: document) ?? 0) + 1) of \(document.pages.count)")
+    private func settingsPresented(_ settings: EditorToolSettings) -> Binding<Bool> {
+        Binding(get: { activeToolSettings == settings }, set: { if !$0 && activeToolSettings == settings { activeToolSettings = nil } })
+    }
 
-                Button { moveSelection(in: document, by: 1) } label: {
-                    Image(systemName: "chevron.right")
+    private func selectDrawingTool(_ tool: EditorDrawingTool) {
+        activeToolSettings = nil
+        drawingTool = tool
+        isToolPickerVisible = false
+        selectedImageID = nil; selectedTextBoxID = nil; editingTextBoxID = nil
+    }
+
+    private var activeWidth: Binding<Double> {
+        if drawingTool == .eraser { return $eraserWidth }
+        return inkType == .highlighter ? $highlighterWidth : $inkWidth
+    }
+
+    private var widthPresets: [Double] {
+        if drawingTool == .eraser { return [8, 20, 36] }
+        return inkType == .highlighter ? [6, 12, 20] : [1, 2.5, 5]
+    }
+
+    private func inkSettingsPopover(highlighter: Bool) -> some View {
+        NotebookToolSettings(title: highlighter ? "Highlighter" : "Pen") {
+            if !highlighter {
+                Picker("Pen type", selection: $inkType) {
+                    ForEach(EditorInkType.allCases.filter { $0 != .highlighter }) { type in Text(type.label).tag(type) }
+                }.pickerStyle(.menu)
+                    .onChange(of: inkType) { _, type in if type != .highlighter { lastPenType = type } }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack { Text("Thickness"); Spacer(); Text("\(activeWidth.wrappedValue, specifier: "%.1f") pt").foregroundStyle(.secondary).monospacedDigit() }
+                Slider(value: activeWidth, in: highlighter ? 4...30 : 0.5...14, step: 0.5)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack { Text("Opacity"); Spacer(); Text("\(Int((highlighter ? highlighterOpacity : inkOpacity) * 100))%").foregroundStyle(.secondary).monospacedDigit() }
+                Slider(value: highlighter ? $highlighterOpacity : $inkOpacity, in: 0.15...1, step: 0.05)
+            }
+            ColorPicker("Color", selection: inkColorSelection, supportsOpacity: false)
+            HStack {
+                ForEach(customInkColors, id: \.self) { hex in
+                    Button { inkColorHex = hex } label: { Circle().fill(Color(hex: hex)).frame(width: 28, height: 28).overlay(Circle().stroke(NotionTheme.borderStrong, lineWidth: 1)) }
+                        .buttonStyle(.plain).accessibilityLabel(colorName(for: hex))
                 }
-                .disabled((selectedPageIndex(in: document) ?? 0) >= document.pages.count - 1)
-                .accessibilityLabel("Next page")
+            }
+            Button("Save color preset", systemImage: "plus.circle") { saveCurrentInkColorPreset() }
+        }.tint(NotionTheme.accent).presentationCompactAdaptation(.popover)
+    }
 
-                Menu {
-                    ForEach([0.75, 1.0, 1.25, 1.5, 2.0, 2.5], id: \.self) { scale in
-                        Button {
-                            zoomScale = CGFloat(scale)
-                            zoomBaseScale = CGFloat(scale)
-                        } label: {
-                            if abs(zoomScale - CGFloat(scale)) < 0.01 {
-                                Label("\(Int(scale * 100))%", systemImage: "checkmark")
-                            } else {
-                                Text("\(Int(scale * 100))%")
-                            }
-                        }
-                    }
-                    Button("Reset zoom", systemImage: "arrow.counterclockwise") {
-                        zoomScale = 1
-                        zoomBaseScale = 1
-                    }
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                }
-                .accessibilityLabel("Page zoom")
+    private var eraserSettingsPopover: some View {
+        NotebookToolSettings(title: "Eraser") {
+            Picker("Erase", selection: $eraseWholeStrokes) {
+                Text("Pixels").tag(false); Text("Whole strokes").tag(true)
+            }.pickerStyle(.segmented)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack { Text("Size"); Spacer(); Text("\(Int(eraserWidth)) pt").foregroundStyle(.secondary).monospacedDigit() }
+                Slider(value: $eraserWidth, in: 4...60, step: 1)
+            }.disabled(eraseWholeStrokes)
+        }.tint(NotionTheme.accent).presentationCompactAdaptation(.popover)
+    }
 
-                if document.pages.contains(where: \.isBookmarked) {
-                    Menu {
-                        ForEach(Array(document.pages.enumerated()), id: \.element.id) { index, bookmarkedPage in
-                            if bookmarkedPage.isBookmarked {
-                                Button {
-                                    selectedPageID = bookmarkedPage.id
-                                    selectedTextBoxID = nil
-                                    editingTextBoxID = nil
-                                    selectedImageID = nil
-                                } label: {
-                                    Label(bookmarkedPage.bookmarkTitle ?? "Page \(index + 1)", systemImage: "bookmark.fill")
-                                }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "bookmark")
-                    }
-                    .accessibilityLabel("Bookmarked pages")
-                }
+    private var lassoSettingsPopover: some View {
+        NotebookToolSettings(title: "Lasso") {
+            Picker("Selection shape", selection: $lassoShapeValue) {
+                ForEach(NotyLassoShape.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
+            }.pickerStyle(.segmented)
+            Toggle("Handwriting", isOn: $lassoIncludesInk)
+            Toggle("Text boxes", isOn: $lassoIncludesText)
+            Toggle("Photos", isOn: $lassoIncludesPhotos)
+        }.tint(NotionTheme.accent).presentationCompactAdaptation(.popover)
+    }
 
-                toolbarDivider
+    private var textSettingsPopover: some View {
+        NotebookToolSettings(title: "Text") {
+            textObjectControls
+            Button("Add text box", systemImage: "plus") { activeToolSettings = nil; selectDrawingTool(.hand); addTextBox() }
+        }.presentationCompactAdaptation(.popover)
+    }
 
-                Button { canvasController.undo() } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                }
-                .disabled(!canvasController.canUndo)
-                .accessibilityLabel("Undo drawing")
-
-                Button { canvasController.redo() } label: {
-                    Image(systemName: "arrow.uturn.forward")
-                }
-                .disabled(!canvasController.canRedo)
-                .accessibilityLabel("Redo drawing")
-
-                toolbarDivider
-
-                Menu {
-                    ForEach(EditorInkType.allCases) { type in
-                        Button {
-                            inkType = type
-                        } label: {
-                            if type == inkType {
-                                Label(type.label, systemImage: "checkmark")
-                            } else {
-                                Label(type.label, systemImage: type.symbolName)
-                            }
-                        }
-                    }
-                } label: {
-                    Label(inkType.label, systemImage: inkType.symbolName)
-                        .labelStyle(.iconOnly)
-                        .foregroundStyle(inkColor)
-                        .accessibilityLabel("Ink: \(inkType.label)")
-                }
-                .accessibilityLabel("Choose pen")
-
-                Menu {
-                    Section("Presets") {
-                        ForEach(customInkColors, id: \.self) { colorHex in
-                            let isSelected = colorHex == inkColorHex
-                            let title = isSelected ? "Selected color" : colorName(for: colorHex)
-                            let symbolName = isSelected ? "checkmark.circle.fill" : "circle.fill"
-                            Button {
-                                inkColorHex = colorHex
-                            } label: {
-                                Label(title, systemImage: symbolName)
-                                    .tint(Color(hex: colorHex))
-                            }
-                        }
-                    }
-                    ColorPicker("Custom color", selection: inkColorSelection, supportsOpacity: false)
-                    Button {
-                        saveCurrentInkColorPreset()
-                    } label: {
-                        Label("Save current color preset", systemImage: "plus.circle")
-                    }
-                } label: {
-                    Circle()
-                        .fill(inkColor)
-                        .frame(width: 17, height: 17)
-                        .overlay(Circle().stroke(EditorPalette.border, lineWidth: 1))
-                        .frame(width: 34, height: 30)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("Ink color")
-
-                Menu {
-                    Section("Thickness") {
-                        Slider(value: $inkWidth, in: 1...14, step: 0.5)
-                        Text("\(inkWidth, specifier: "%.1f") pt")
-                            .font(.caption.monospacedDigit())
-                    }
-                    Section("Opacity") {
-                        Slider(value: $inkOpacity, in: 0.15...1, step: 0.05)
-                        Text("\(Int(inkOpacity * 100))%")
-                            .font(.caption.monospacedDigit())
-                    }
-                } label: {
-                    Image(systemName: "lineweight")
-                        .frame(width: 30, height: 30)
-                }
-                .accessibilityLabel("Ink thickness and opacity")
-
-                Button {
-                    isToolPickerVisible.toggle()
-                } label: {
-                    Image(systemName: "scribble.variable")
-                        .foregroundStyle(isToolPickerVisible ? NotionTheme.accent : EditorPalette.ink)
-                        .frame(width: 30, height: 30)
-                        .background(isToolPickerVisible ? NotionTheme.rowHover : Color.clear, in: RoundedRectangle(cornerRadius: NotionTheme.radiusMedium))
-                        .overlay {
-                            if isToolPickerVisible {
-                                RoundedRectangle(cornerRadius: NotionTheme.radiusMedium)
-                                    .stroke(EditorPalette.border, lineWidth: 0.8)
-                            }
-                        }
-                }
-                .accessibilityLabel(isToolPickerVisible ? "Hide drawing tools" : "Show drawing tools")
-                .accessibilityHint("PencilKit provides eraser, lasso, and ruler tools")
-
-                Menu {
-                    Section("Ruler") {
-                        Button {
-                            canvasController.toggleRuler()
-                        } label: {
-                            Label(canvasController.isRulerActive ? "Hide ruler" : "Show ruler", systemImage: canvasController.isRulerActive ? "checkmark.ruler" : "ruler")
-                        }
-                    }
-                    Section("Shapes") {
-                        Button { canvasController.insertShape(.line, color: inkUIColor, width: inkWidth, canvasSize: selectedPage?.canvasSize ?? CGSize(width: 612, height: 792)) } label: {
-                            Label("Straight line", systemImage: "line.diagonal")
-                        }
-                        Button { canvasController.insertShape(.rectangle, color: inkUIColor, width: inkWidth, canvasSize: selectedPage?.canvasSize ?? CGSize(width: 612, height: 792)) } label: {
-                            Label("Rectangle", systemImage: "rectangle")
-                        }
-                        Button { canvasController.insertShape(.ellipse, color: inkUIColor, width: inkWidth, canvasSize: selectedPage?.canvasSize ?? CGSize(width: 612, height: 792)) } label: {
-                            Label("Ellipse", systemImage: "circle")
-                        }
-                    }
-                } label: {
-                    Image(systemName: canvasController.isRulerActive ? "checkmark.ruler" : "shapes")
-                        .frame(width: 30, height: 30)
-                }
-                .accessibilityLabel("Ruler and shapes")
-
-                Button { addTextBox() } label: {
-                    Image(systemName: "text.cursor")
-                }
-                .disabled(selectedPage == nil)
-                .accessibilityLabel("Add text box")
-
-                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                    Image(systemName: "photo.badge.plus")
-                        .frame(width: 30, height: 30)
-                }
-                .disabled(selectedPage == nil)
-                .accessibilityLabel("Add photo")
-
-                if let page = selectedPage, !page.images.isEmpty {
-                    Menu {
-                        ForEach(Array(page.images.enumerated()), id: \.element.id) { index, image in
-                            Button {
-                                selectedImageID = image.id
-                                selectedTextBoxID = nil
-                                editingTextBoxID = nil
-                                isToolPickerVisible = false
-                            } label: {
-                                if selectedImageID == image.id {
-                                    Label("Image \(index + 1)", systemImage: "checkmark")
-                                } else {
-                                    Label("Image \(index + 1)", systemImage: "photo")
-                                }
-                            }
-                        }
-                        if selectedImageID != nil {
-                            Divider()
-                            Button("Done selecting image", systemImage: "checkmark") {
-                                selectedImageID = nil
-                            }
-                        }
-                    } label: {
-                        Image(systemName: selectedImageID == nil ? "photo.on.rectangle" : "photo.fill.on.rectangle.fill")
-                    }
-                    .accessibilityLabel("Select page image")
-                }
-
-                if let page = selectedPage,
-                   let selectedImageID,
-                   let selectedImage = page.images.first(where: { $0.id == selectedImageID }) {
-                    Button {
-                        updatePageImage(page, imageID: selectedImage.id) { $0.rotationDegrees -= 90 }
-                    } label: {
-                        Image(systemName: "rotate.left")
-                    }
-                    .accessibilityLabel("Rotate image left")
-
-                    Button {
-                        updatePageImage(page, imageID: selectedImage.id) { $0.rotationDegrees += 90 }
-                    } label: {
-                        Image(systemName: "rotate.right")
-                    }
-                    .accessibilityLabel("Rotate image right")
-
-                    Button(role: .destructive) {
-                        store.updatePageImages(
-                            documentID: documentID,
-                            pageID: page.id,
-                            images: page.images.filter { $0.id != selectedImage.id }
-                        )
-                        self.selectedImageID = nil
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                    .accessibilityLabel("Delete image")
-                }
-
-                if let page = selectedPage {
-                    Button { convertHandwritingToText(page) } label: {
-                        Image(systemName: "character.book.closed")
-                    }
-                    .accessibilityLabel("Convert handwriting to text")
-                }
-
+    private var textObjectControls: some View {
+        VStack(alignment: .leading, spacing: 16) {
                 if let selectedTextBoxID, let page = selectedPage,
                    let textBox = page.textBoxes.first(where: { $0.id == selectedTextBoxID }) {
                     Menu {
@@ -783,6 +783,11 @@ struct DocumentEditorView: View {
                                     else { Text("\(Int(size)) pt") }
                                 }
                             }
+                        }
+                        Section("Lists") {
+                            Button("Bullet list", systemImage: "list.bullet") { updateTextBox(page, boxID: textBox.id) { $0.text = $0.text.components(separatedBy: "\n").map { "• " + $0 }.joined(separator: "\n") } }
+                            Button("Numbered list", systemImage: "list.number") { updateTextBox(page, boxID: textBox.id) { $0.text = $0.text.components(separatedBy: "\n").enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n") } }
+                            Button("Checklist", systemImage: "checklist") { updateTextBox(page, boxID: textBox.id) { $0.text = $0.text.components(separatedBy: "\n").map { "☐ " + $0 }.joined(separator: "\n") } }
                         }
                         Section("Style") {
                             Button {
@@ -821,153 +826,145 @@ struct DocumentEditorView: View {
                             }
                         }
                     } label: {
-                        Image(systemName: "textformat")
+                        Label("Formatting", systemImage: "textformat")
                     }
                     .accessibilityLabel("Text formatting")
+                    Button { UIPasteboard.general.string = textBox.text } label: { Label("Copy text", systemImage: "doc.on.doc") }.accessibilityLabel("Copy text")
+                    Button { duplicateTextBox(textBox, page: page) } label: { Label("Duplicate text box", systemImage: "plus.square.on.square") }.accessibilityLabel("Duplicate text box")
 
                     Button {
                         editingTextBoxID = editingTextBoxID == textBox.id ? nil : textBox.id
                     } label: {
-                        Image(systemName: editingTextBoxID == textBox.id ? "checkmark" : "square.and.pencil")
+                        Label(editingTextBoxID == textBox.id ? "Done editing" : "Edit text", systemImage: editingTextBoxID == textBox.id ? "checkmark" : "square.and.pencil")
                     }
                     .accessibilityLabel(editingTextBoxID == textBox.id ? "Done editing text" : "Edit text")
 
                     Button(role: .destructive) {
                         updateTextBoxes(page, removing: textBox.id)
                     } label: {
-                        Image(systemName: "trash")
+                        Label("Delete text box", systemImage: "trash")
                     }
                     .accessibilityLabel("Delete text box")
                 }
 
-                if let page = selectedPage {
-                    toolbarDivider
+        }.buttonStyle(.borderless).labelStyle(.titleAndIcon)
+    }
+
+    private var photoSettingsPopover: some View {
+        NotebookToolSettings(title: "Photos") {
+            PhotosPicker(selection: $selectedPhotoItem, matching: .images) { Label("Add from Photos", systemImage: "photo.badge.plus") }
+            Button("Image from Files", systemImage: "folder") { activeToolSettings = nil; isShowingImageImporter = true }
+            Button("Paste", systemImage: "doc.on.clipboard") { activeToolSettings = nil; pasteObject() }
+            photoObjectControls
+        }.buttonStyle(.borderless).labelStyle(.titleAndIcon).presentationCompactAdaptation(.popover)
+    }
+
+    private var photoObjectControls: some View {
+        VStack(alignment: .leading, spacing: 16) {
+                if let page = selectedPage, !page.images.isEmpty {
                     Menu {
-                        if page.sourcePageIndex == nil {
-                            Section("Paper design") {
-                                ForEach(NotyPageTemplate.allCases, id: \.self) { template in
-                                    Button {
-                                        store.updatePageFormat(documentID: documentID, pageID: page.id, template: template)
-                                    } label: {
-                                        if page.template == template {
-                                            Label(template.editorLabel, systemImage: "checkmark")
-                                        } else {
-                                            Label(template.editorLabel, systemImage: template.symbolName)
-                                        }
-                                    }
+                        ForEach(Array(page.images.enumerated()), id: \.element.id) { index, image in
+                            Button {
+                                drawingTool = .hand
+                                selectedImageID = image.id
+                                selectedTextBoxID = nil
+                                editingTextBoxID = nil
+                                isToolPickerVisible = false
+                            } label: {
+                                if selectedImageID == image.id {
+                                    Label("Image \(index + 1)", systemImage: "checkmark")
+                                } else {
+                                    Label("Image \(index + 1)", systemImage: "photo")
                                 }
                             }
                         }
-                        Section("Paper color") {
-                            ForEach(paperColorPresets, id: \.hex) { preset in
-                                Button {
-                                    store.updatePageFormat(documentID: documentID, pageID: page.id, paperColorHex: preset.hex)
-                                } label: {
-                                    Label(preset.name, systemImage: page.paperColorHex.uppercased() == preset.hex ? "checkmark.circle.fill" : "circle.fill")
-                                        .tint(Color(hex: preset.hex))
-                                }
-                            }
-                            ColorPicker("Custom color", selection: paperColorBinding(for: page), supportsOpacity: false)
-                        }
-                        Section("Paper size") {
-                            ForEach(NotyPageSizePreset.allCases, id: \.self) { size in
-                                Button {
-                                    store.updatePageFormat(documentID: documentID, pageID: page.id, sizePreset: size)
-                                } label: {
-                                    if page.sizePreset == size {
-                                        Label(size.editorLabel, systemImage: "checkmark")
-                                    } else {
-                                        Label(size.editorLabel, systemImage: size.symbolName)
-                                    }
-                                }
-                            }
-                        }
-                        Section("Orientation") {
-                            ForEach(NotyPageOrientation.allCases, id: \.self) { orientation in
-                                Button {
-                                    store.updatePageFormat(documentID: documentID, pageID: page.id, orientation: orientation)
-                                } label: {
-                                    if page.orientation == orientation {
-                                        Label(orientation.editorLabel, systemImage: "checkmark")
-                                    } else {
-                                        Label(orientation.editorLabel, systemImage: orientation.symbolName)
-                                    }
-                                }
-                            }
-                        }
-                        Section("Page") {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.18)) {
-                                    isPresenterControlsVisible = true
-                                    isLaserPointerEnabled = false
-                                    presenterLaserLocation = nil
-                                    isPresenterBlackout = false
-                                    isPresentationMode = true
-                                }
-                            } label: {
-                                Label("Present pages", systemImage: "play.rectangle")
-                            }
-                            Button {
-                                store.updatePageBookmark(
-                                    documentID: documentID,
-                                    pageID: page.id,
-                                    isBookmarked: !page.isBookmarked
-                                )
-                            } label: {
-                                Label(page.isBookmarked ? "Remove page bookmark" : "Bookmark page", systemImage: page.isBookmarked ? "bookmark.slash" : "bookmark")
-                            }
-                            Button {
-                                addPage(template: page.template)
-                            } label: {
-                                Label("Add page after", systemImage: "plus.rectangle.on.rectangle")
-                            }
-                            Button {
-                                duplicatePage(page)
-                            } label: {
-                                Label("Duplicate page", systemImage: "plus.square.on.square")
-                            }
-                            Button {
-                                moveCurrentPage(in: document, by: -1)
-                            } label: {
-                                Label("Move page earlier", systemImage: "arrow.up.to.line")
-                            }
-                            .disabled((selectedPageIndex(in: document) ?? 0) == 0)
-                            Button {
-                                moveCurrentPage(in: document, by: 1)
-                            } label: {
-                                Label("Move page later", systemImage: "arrow.down.to.line")
-                            }
-                            .disabled((selectedPageIndex(in: document) ?? 0) >= document.pages.count - 1)
-                            Button(role: .destructive) {
-                                store.deletePage(documentID: documentID, pageID: page.id)
-                            } label: {
-                                Label("Delete page", systemImage: "trash")
+                        if selectedImageID != nil {
+                            Divider()
+                            Button("Done selecting image", systemImage: "checkmark") {
+                                selectedImageID = nil
                             }
                         }
                     } label: {
-                        Image(systemName: "ellipsis")
-                            .frame(width: 30, height: 30)
+                        Label("Select photo", systemImage: "photo.on.rectangle")
                     }
-                    .accessibilityLabel("Page options")
+                    .accessibilityLabel("Select page image")
                 }
-            }
-            .font(.system(size: 13, weight: .medium))
-            .buttonStyle(EditorToolbarButtonStyle())
-            .padding(.horizontal, 14)
-            .frame(height: 46)
-        }
-        .scrollIndicators(.hidden)
-        .background(EditorPalette.paper)
+
+                if let page = selectedPage,
+                   let selectedImageID,
+                   let selectedImage = page.images.first(where: { $0.id == selectedImageID }) {
+                    Button {
+                        updatePageImage(page, imageID: selectedImage.id) { $0.rotationDegrees -= 90 }
+                    } label: {
+                        Label("Rotate left", systemImage: "rotate.left")
+                    }
+                    .accessibilityLabel("Rotate image left")
+
+                    Button {
+                        updatePageImage(page, imageID: selectedImage.id) { $0.rotationDegrees += 90 }
+                    } label: {
+                        Label("Rotate right", systemImage: "rotate.right")
+                    }
+                    .accessibilityLabel("Rotate image right")
+                    Button { activeToolSettings = nil; croppingImage = selectedImage } label: { Label("Crop photo", systemImage: "crop") }.accessibilityLabel("Crop image")
+                    Button { copyImage(selectedImage, page: page) } label: { Label("Copy photo", systemImage: "doc.on.doc") }.accessibilityLabel("Copy image")
+
+                    Button(role: .destructive) {
+                        objectHistory.updateImages(
+                            store: store, undoManager: canvasController.undoManager, documentID: documentID,
+                            pageID: page.id,
+                            images: page.images.filter { $0.id != selectedImage.id }
+                        )
+                        self.selectedImageID = nil
+                    } label: {
+                        Label("Delete photo", systemImage: "trash")
+                    }
+                    .accessibilityLabel("Delete image")
+                }
+
+        }.buttonStyle(.borderless).labelStyle(.titleAndIcon)
     }
 
-    private var toolbarDivider: some View {
-        Rectangle().fill(EditorPalette.border).frame(width: 1, height: 19).padding(.horizontal, 4)
+    private func editorOptions(_ document: NotyDocument) -> some View {
+        Menu {
+            Button { canvasController.toggleRuler() } label: {
+                Label(canvasController.isRulerActive ? "Hide ruler" : "Show ruler", systemImage: "ruler")
+            }
+            Toggle("Draw and hold to perfect shapes", isOn: $shapeCorrectionEnabled)
+            Toggle("Draw with finger", isOn: $fingerDrawing)
+            Menu("Insert shape", systemImage: "square.on.circle") {
+                Button("Straight line", systemImage: "line.diagonal") { insertShape(.line) }
+                Button("Rectangle", systemImage: "rectangle") { insertShape(.rectangle) }
+                Button("Ellipse", systemImage: "circle") { insertShape(.ellipse) }
+            }
+            if let page = selectedPage {
+                Button("Convert handwriting to text", systemImage: "character.book.closed") { convertHandwritingToText(page) }
+            }
+            Button("Fit page", systemImage: "arrow.up.left.and.arrow.down.right") { setZoom(1) }
+                .disabled(document.kind == .whiteboard)
+        } label: { Image(systemName: "ellipsis") }
+            .accessibilityLabel("Writing options").accessibilityIdentifier("editor.options")
+    }
+
+    private var boardCenter: CGPoint? {
+        guard document?.kind == .whiteboard, let page = selectedPage else { return nil }
+        return CGPoint(x: page.viewportCenterX ?? Double(page.canvasSize.width / 2), y: page.viewportCenterY ?? Double(page.canvasSize.height / 2))
+    }
+    private var insertionOrigin: CGPoint { boardCenter.map { CGPoint(x: $0.x - 130, y: $0.y - 56) } ?? CGPoint(x: 52, y: 70) }
+
+    private func insertShape(_ shape: EditorShape) {
+        canvasController.insertShape(shape, color: inkUIColor, width: inkWidth, canvasSize: selectedPage?.canvasSize ?? CGSize(width: 612, height: 792), center: boardCenter)
+    }
+
+    private func toolbarDivider(vertical: Bool) -> some View {
+        Rectangle().fill(NotionTheme.ink.opacity(0.14))
+            .frame(width: vertical ? 24 : 1, height: vertical ? 1 : 22).padding(vertical ? .vertical : .horizontal, 4)
     }
 
     private var inkColor: Color { Color(hex: inkColorHex) }
     private var inkUIColor: UIColor { UIColor(hex: inkColorHex).withAlphaComponent(inkOpacity) }
     private var inkSettings: EditorInkSettings {
-        EditorInkSettings(type: inkType, color: inkUIColor, width: CGFloat(inkWidth))
+        EditorInkSettings(type: inkType, color: inkType == .highlighter ? UIColor(hex: inkColorHex).withAlphaComponent(highlighterOpacity) : inkUIColor, width: inkType == .highlighter ? CGFloat(highlighterWidth) : CGFloat(inkWidth), tool: drawingTool, fingerDrawing: fingerDrawing, eraserWidth: CGFloat(eraserWidth), eraseWholeStrokes: eraseWholeStrokes, shapeCorrectionEnabled: shapeCorrectionEnabled)
     }
     private var customInkColors: [String] {
         customInkColorsStorage.split(separator: ",").map(String.init)
@@ -981,9 +978,9 @@ struct DocumentEditorView: View {
 
     private func colorName(for hex: String) -> String {
         switch hex.uppercased() {
-        case "37352F": "Ink"
-        case "D34836": "Red"
-        case "2383E2": "Blue"
+        case "222222", "37352F": "Ink"
+        case "C45C55", "D34836": "Red"
+        case "326BB8", "2383E2": "Blue"
         case "2F8F4E": "Green"
         case "E3A008": "Gold"
         default: "Custom color"
@@ -1022,82 +1019,129 @@ struct DocumentEditorView: View {
 
     @ViewBuilder
     private func canvasArea(_ document: NotyDocument, sourcePDF: PDFDocument?) -> some View {
-        if let page = selectedPage {
-            GeometryReader { proxy in
-                let canvasSize = page.canvasSize
-                let availableWidth = max(proxy.size.width - 48, 100)
-                let availableHeight = max(proxy.size.height - 40, 100)
-                let aspect = canvasSize.width / canvasSize.height
-                let baseWidth = min(availableWidth, availableHeight * aspect, 880)
-                let baseHeight = baseWidth / aspect
-                let pageWidth = baseWidth * zoomScale
-                let pageHeight = baseHeight * zoomScale
-
-                ScrollView([.horizontal, .vertical]) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(Color.white)
-                            .frame(width: pageWidth + 1, height: pageHeight + 1)
-                            .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 2)
-
-                        EditablePageCanvas(
-                            documentID: documentID,
-                            page: page,
-                            store: store,
-                            sourcePDF: sourcePDF,
-                            canvasController: canvasController,
-                            inkSettings: inkSettings,
-                            isToolPickerVisible: isToolPickerVisible,
-                            selectedTextBoxID: $selectedTextBoxID,
-                            editingTextBoxID: $editingTextBoxID,
-                            selectedImageID: $selectedImageID,
-                            onDrawingChanged: { store.saveDrawing($0, documentID: documentID, pageID: page.id) },
-                            onTextBoxesChanged: { store.updateTextBoxes(documentID: documentID, pageID: page.id, textBoxes: $0) },
-                            onImagesChanged: { store.updatePageImages(documentID: documentID, pageID: page.id, images: $0) }
-                        )
-                        .frame(width: pageWidth, height: pageHeight)
-                        .clipShape(RoundedRectangle(cornerRadius: 2))
-                        .overlay(RoundedRectangle(cornerRadius: 2).stroke(EditorPalette.border.opacity(0.7), lineWidth: 0.7))
+        if document.kind == .whiteboard, let page = selectedPage {
+            InfiniteCanvasViewport(canvasSize: page.canvasSize,
+                initialCenter: CGPoint(x: page.viewportCenterX ?? Double(page.canvasSize.width / 2), y: page.viewportCenterY ?? Double(page.canvasSize.height / 2)),
+                paperColor: UIColor(notyHex: page.paperColorHex),
+                panWithTwoFingers: (fingerDrawing && drawingTool != .hand) || drawingTool == .lasso || selectedTextBoxID != nil || selectedImageID != nil,
+                onExpand: { expansion in
+                    canvasController.flush()
+                    guard store.expandWhiteboard(documentID: documentID, pageID: page.id, expansion: expansion) else { return false }
+                    canvasController.translateCoordinateOrigin(by: expansion.translation)
+                    canvasController.applyDrawing(store.drawing(documentID: documentID, pageID: page.id), pageID: page.id)
+                    return true
+                },
+                onViewportSettled: { center in store.updateWhiteboardViewport(documentID: documentID, pageID: page.id, center: center) }) {
+                    editableCanvas(page, sourcePDF: sourcePDF).frame(width: page.canvasSize.width, height: page.canvasSize.height)
+                }
+                .accessibilityIdentifier("editor.infiniteCanvas")
+        } else if !document.pages.isEmpty {
+            GeometryReader { geometry in
+                let layout = NotyPageFlowLayout(pages: document.pages, viewport: geometry.size, zoom: zoomScale)
+                ScrollViewReader { scroll in
+                    ScrollView([.horizontal, .vertical]) {
+                        LazyVStack(spacing: NotyPageFlowLayout.spacing) {
+                            ForEach(document.pages) { page in
+                                if let item = layout.items.first(where: { $0.id == page.id }) {
+                                    editableCanvas(page, sourcePDF: sourcePDF)
+                                        .frame(width: item.size.width, height: item.size.height)
+                                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(EditorPalette.border, lineWidth: 0.7))
+                                        .shadow(color: .black.opacity(0.1), radius: 12, y: 4)
+                                        .frame(width: layout.contentWidth)
+                                        .id(page.id)
+                                }
+                            }
+                        }
+                        .padding(.vertical, NotyPageFlowLayout.inset)
+                        .frame(minHeight: geometry.size.height, alignment: .top)
                     }
-                    .frame(
-                        width: max(proxy.size.width, pageWidth + 48),
-                        height: max(proxy.size.height, pageHeight + 48),
-                        alignment: .center
-                    )
+                    .scrollIndicators(.visible)
+                    .onScrollGeometryChange(for: UUID?.self, of: { geometry in
+                        layout.pageID(at: geometry.contentOffset.y + geometry.containerSize.height / 2)
+                    }) { _, pageID in if let pageID { activate(pageID) } }
+                    .onChange(of: pageNavigationRequest) { _, request in
+                        if let request { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { scroll.scrollTo(request.pageID, anchor: .center) } }
+                    }
+                    .onAppear { if let pageID = selectedPage?.id { scroll.scrollTo(pageID, anchor: .center) } }
+                    .simultaneousGesture(MagnificationGesture().onChanged { magnification in
+                        zoomScale = min(max(zoomBaseScale * magnification, 0.65), 3)
+                    }.onEnded { _ in zoomBaseScale = zoomScale })
                 }
-                .scrollIndicators(.visible)
-                .defaultScrollAnchor(.center)
-                .simultaneousGesture(
-                    MagnificationGesture()
-                        .onChanged { magnification in
-                            zoomScale = min(max(zoomBaseScale * magnification, 0.65), 3)
-                        }
-                        .onEnded { _ in
-                            zoomBaseScale = zoomScale
-                        }
-                )
+            }.background(NotionTheme.canvas).accessibilityIdentifier("editor.continuousPages")
+        } else { ContentUnavailableView("No pages", systemImage: "doc", description: Text("Add a page to start writing.")) }
+    }
+
+    private func editableCanvas(_ page: NotyPage, sourcePDF: PDFDocument?) -> some View {
+        let controller = canvasSessions.controller(for: page.id)
+        return EditablePageCanvas(documentID: documentID, page: page, store: store, sourcePDF: sourcePDF,
+            canvasController: controller, inkSettings: inkSettings, isToolPickerVisible: isToolPickerVisible,
+            selectedTextBoxID: $selectedTextBoxID, editingTextBoxID: $editingTextBoxID,
+            selectedImageID: $selectedImageID, lassoSelection: $lassoSelection,
+            lassoShape: NotyLassoShape(rawValue: lassoShapeValue) ?? .freehand,
+            selectionFilter: NotySelectionFilter(handwriting: lassoIncludesInk, text: lassoIncludesText, photos: lassoIncludesPhotos),
+            onActivate: { activate(page.id) },
+            onContentChanged: { content, action in
+                objectHistory.updateContent(store: store, undoManager: controller.undoManager, documentID: documentID, pageID: page.id, content: content, actionName: action) { drawing in controller.applyDrawing(drawing, pageID: page.id) }
+            },
+            onDrawingChanged: { store.saveDrawing($0, documentID: documentID, pageID: page.id) },
+            onTextBoxesChanged: { objectHistory.updateTextBoxes(store: store, undoManager: controller.undoManager, documentID: documentID, pageID: page.id, textBoxes: $0) },
+            onImagesChanged: { objectHistory.updateImages(store: store, undoManager: controller.undoManager, documentID: documentID, pageID: page.id, images: $0) })
+    }
+
+    private func activate(_ pageID: UUID) {
+        guard selectedPageID != pageID else { return }
+        canvasController.flush(); canvasController.cancelPreview()
+        selectedTextBoxID = nil; editingTextBoxID = nil; selectedImageID = nil; lassoSelection = nil
+        selectedPageID = pageID
+    }
+    private func navigate(to pageID: UUID) {
+        activate(pageID)
+        pageNavigationRequest = PageNavigationRequest(pageID: pageID)
+    }
+
+    private func setZoom(_ scale: CGFloat) {
+        zoomScale = min(max(scale, 0.65), 3)
+        zoomBaseScale = zoomScale
+    }
+
+    private func copyImage(_ image: NotyPageImage, page: NotyPage) {
+        UIPasteboard.general.image = store.pageImage(documentID: documentID, pageID: page.id, image: image)
+    }
+    private func pasteObject() {
+        guard let page = selectedPage else { return }
+        canvasController.flush()
+        do {
+            if let payload = try NotySelectionClipboard.read() {
+                let current = NotyPageContent(page: page, drawing: store.drawing(documentID: documentID, pageID: page.id))
+                let result = try NotySelectionClipboard.inserting(payload, into: current, at: boardCenter.map { CGPoint(x: $0.x - 150, y: $0.y - 80) } ?? CGPoint(x: 32, y: 32), paper: page.canvasSize, store: store, documentID: documentID, pageID: page.id)
+                objectHistory.updateContent(store: store, undoManager: canvasController.undoManager, documentID: documentID, pageID: page.id, content: result.content, actionName: "Paste selection") { drawing in canvasController.applyDrawing(drawing, pageID: page.id) }
+                drawingTool = .lasso; isToolPickerVisible = false; selectedTextBoxID = nil; selectedImageID = nil; editingTextBoxID = nil
+                lassoSelection = result.selection
+                return
             }
-            .background(EditorPalette.workspace)
-        } else {
-            VStack(spacing: 12) {
-                Image(systemName: "doc.badge.plus")
-                    .font(.system(size: 30, weight: .light))
-                    .foregroundStyle(EditorPalette.secondaryInk)
-                Text("This document has no pages")
-                    .font(NotionTheme.font(14, weight: .medium))
-                Button("Add a blank page") {
-                    store.addPage(documentID: documentID, after: nil, template: .blank)
-                }
-                .font(NotionTheme.control)
-                .buttonStyle(NotionPrimaryButtonStyle())
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } catch { imageImportError = error.localizedDescription; return }
+        if let image = UIPasteboard.general.image, let data = image.pngData() {
+            do { selectedImageID = try objectHistory.addImage(store: store, undoManager: canvasController.undoManager, data: data, documentID: documentID, pageID: page.id).id; drawingTool = .hand }
+            catch { imageImportError = error.localizedDescription }
+        } else if let text = UIPasteboard.general.string {
+            let box = NotyTextBox(text: text, x: Double(insertionOrigin.x), y: Double(insertionOrigin.y), width: min(300, page.canvasSize.width - 80), height: 160, fontSize: 20)
+            objectHistory.updateTextBoxes(store: store, undoManager: canvasController.undoManager, documentID: documentID, pageID: page.id, textBoxes: page.textBoxes + [box])
+            selectedTextBoxID = box.id; editingTextBoxID = box.id
         }
+    }
+    private func duplicateTextBox(_ box: NotyTextBox, page: NotyPage) {
+        var copy = box; copy.id = UUID(); copy.x = min(copy.x + 20, page.canvasSize.width - copy.width); copy.y = min(copy.y + 20, page.canvasSize.height - copy.height)
+        objectHistory.updateTextBoxes(store: store, undoManager: canvasController.undoManager, documentID: documentID, pageID: page.id, textBoxes: page.textBoxes + [copy])
+        selectedTextBoxID = copy.id; editingTextBoxID = nil
     }
 
     private func selectInitialPage() {
+        objectHistory.onChange = { canvasController.refreshUndoState() }
+        store.ensureNotebookCover(documentID: documentID)
         if selectedPageID == nil {
-            selectedPageID = document?.pages.first?.id
+            if horizontalSizeClass == .compact { isShowingThumbnails = false }
+            if let pageID = document?.pages.first(where: { $0.id == initialPageID })?.id ?? document?.pages.first?.id { navigate(to: pageID) }
         }
     }
 
@@ -1110,19 +1154,16 @@ struct DocumentEditorView: View {
         guard let index = selectedPageIndex(in: document) else { return }
         let nextIndex = min(max(index + delta, 0), document.pages.count - 1)
         guard document.pages.indices.contains(nextIndex) else { return }
-        selectedPageID = document.pages[nextIndex].id
+        canvasController.flush()
+        navigate(to: document.pages[nextIndex].id)
         selectedTextBoxID = nil
         editingTextBoxID = nil
     }
 
-    private func addPage(template: NotyPageTemplate) {
-        store.addPage(documentID: documentID, after: selectedPage?.id, template: template)
-        if let updatedDocument = store.documents.first(where: { $0.id == documentID }),
-           let currentIndex = updatedDocument.pages.firstIndex(where: { $0.id == selectedPageID }),
-           updatedDocument.pages.indices.contains(currentIndex + 1) {
-            selectedPageID = updatedDocument.pages[currentIndex + 1].id
-        } else {
-            selectedPageID = store.documents.first(where: { $0.id == documentID })?.pages.last?.id
+    private func addPage(template: NotyPageTemplate, format: NotyPage? = nil) {
+        canvasController.flush()
+        if let page = store.addPage(documentID: documentID, after: selectedPage?.id, template: template, format: format) {
+            navigate(to: page.id)
         }
         selectedTextBoxID = nil
         selectedImageID = nil
@@ -1130,7 +1171,7 @@ struct DocumentEditorView: View {
 
     private func duplicatePage(_ page: NotyPage) {
         guard let copy = store.duplicatePage(documentID: documentID, pageID: page.id) else { return }
-        selectedPageID = copy.id
+        navigate(to: copy.id)
         selectedTextBoxID = nil
         editingTextBoxID = nil
         selectedImageID = nil
@@ -1148,16 +1189,16 @@ struct DocumentEditorView: View {
         let index = page.textBoxes.count
         let box = NotyTextBox(
             id: UUID(),
-            text: "Type something…",
-            x: 50 + Double(index % 3) * 24,
-            y: 70 + Double(index % 4) * 34,
+            text: "",
+            x: Double(insertionOrigin.x) + Double(index % 3) * 24,
+            y: Double(insertionOrigin.y) + Double(index % 4) * 34,
             width: 260,
             height: 112,
             fontSize: 20
         )
         var boxes = page.textBoxes
         boxes.append(box)
-        store.updateTextBoxes(documentID: documentID, pageID: page.id, textBoxes: boxes)
+        objectHistory.updateTextBoxes(store: store, undoManager: canvasController.undoManager, documentID: documentID, pageID: page.id, textBoxes: boxes)
         selectedTextBoxID = box.id
         editingTextBoxID = box.id
         selectedImageID = nil
@@ -1165,7 +1206,7 @@ struct DocumentEditorView: View {
     }
 
     private func updateTextBoxes(_ page: NotyPage, removing id: UUID) {
-        store.updateTextBoxes(documentID: documentID, pageID: page.id, textBoxes: page.textBoxes.filter { $0.id != id })
+        objectHistory.updateTextBoxes(store: store, undoManager: canvasController.undoManager, documentID: documentID, pageID: page.id, textBoxes: page.textBoxes.filter { $0.id != id })
         selectedTextBoxID = nil
         editingTextBoxID = nil
     }
@@ -1174,14 +1215,14 @@ struct DocumentEditorView: View {
         var boxes = page.textBoxes
         guard let index = boxes.firstIndex(where: { $0.id == boxID }) else { return }
         mutation(&boxes[index])
-        store.updateTextBoxes(documentID: documentID, pageID: page.id, textBoxes: boxes)
+        objectHistory.updateTextBoxes(store: store, undoManager: canvasController.undoManager, documentID: documentID, pageID: page.id, textBoxes: boxes)
     }
 
     private func updatePageImage(_ page: NotyPage, imageID: UUID, mutation: (inout NotyPageImage) -> Void) {
         var images = page.images
         guard let index = images.firstIndex(where: { $0.id == imageID }) else { return }
         mutation(&images[index])
-        store.updatePageImages(documentID: documentID, pageID: page.id, images: images)
+        objectHistory.updateImages(store: store, undoManager: canvasController.undoManager, documentID: documentID, pageID: page.id, images: images)
     }
 
     private func convertHandwritingToText(_ page: NotyPage) {
@@ -1195,26 +1236,28 @@ struct DocumentEditorView: View {
         let canvasSize = page.canvasSize
         let box = NotyTextBox(
             text: recognizedText,
-            x: 36,
-            y: 36,
+            x: Double(insertionOrigin.x),
+            y: Double(insertionOrigin.y),
             width: max(120, min(540, Double(canvasSize.width) - 72)),
             height: max(80, min(420, min(Double(canvasSize.height) - 72, Double(lines) * 28 + 24))),
             fontSize: 18
         )
-        store.updateTextBoxes(documentID: documentID, pageID: page.id, textBoxes: page.textBoxes + [box])
+        objectHistory.updateTextBoxes(store: store, undoManager: canvasController.undoManager, documentID: documentID, pageID: page.id, textBoxes: page.textBoxes + [box])
         selectedTextBoxID = box.id
         editingTextBoxID = nil
     }
 
-    private func exportPDF() {
+    private func exportPDF(selectedPageIDs: Set<UUID>? = nil) {
+        canvasSessions.flushAll()
         do {
-            shareURL = try NotyExportService.exportPDF(documentID: documentID, store: store)
+            shareURL = try NotyExportService.exportPDF(documentID: documentID, store: store, selectedPageIDs: selectedPageIDs)
         } catch {
             exportError = error.localizedDescription
         }
     }
 
     private func exportPageImage() {
+        canvasController.flush()
         guard let page = selectedPage else { return }
         do {
             shareURL = try NotyExportService.exportPageImage(documentID: documentID, pageID: page.id, store: store)
@@ -1241,6 +1284,7 @@ private struct PresentedPageCanvas: View {
                 PageBackground(
                     documentID: documentID,
                     page: page,
+                    store: store,
                     sourcePDF: sourcePDF,
                     imageSize: CGSize(width: canvasSize.width * 3, height: canvasSize.height * 3)
                 )
@@ -1263,7 +1307,7 @@ private struct PresentedPageCanvas: View {
 
                 let drawing = store.drawing(documentID: documentID, pageID: page.id)
                 if !drawing.strokes.isEmpty {
-                    Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: canvasSize), scale: 2))
+                    Image(uiImage: drawing.notyImage(from: CGRect(origin: .zero, size: canvasSize), scale: min(2, 4_096 / max(canvasSize.width, canvasSize.height))))
                         .resizable()
                         .frame(width: canvasSize.width, height: canvasSize.height)
                 }
@@ -1300,8 +1344,8 @@ private struct PresentedTextBox: View {
             .underline(box.isUnderlined)
             .foregroundStyle(Color(hex: box.colorHex))
             .multilineTextAlignment(box.alignment.textAlignment)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 9 * box.contentInsetScale)
+            .padding(.vertical, 8 * box.contentInsetScale)
             .frame(
                 width: CGFloat(box.width),
                 height: CGFloat(box.height),
@@ -1325,9 +1369,15 @@ private struct EditablePageCanvas: View {
     @Binding var selectedTextBoxID: UUID?
     @Binding var editingTextBoxID: UUID?
     @Binding var selectedImageID: UUID?
+    @Binding var lassoSelection: NotyPageSelection?
+    let lassoShape: NotyLassoShape
+    let selectionFilter: NotySelectionFilter
+    let onActivate: () -> Void
+    let onContentChanged: (NotyPageContent, String) -> Void
     let onDrawingChanged: (PKDrawing) -> Void
     let onTextBoxesChanged: ([NotyTextBox]) -> Void
     let onImagesChanged: ([NotyPageImage]) -> Void
+    @State private var previewContent: NotyPageContent?
 
     var body: some View {
         GeometryReader { proxy in
@@ -1335,15 +1385,21 @@ private struct EditablePageCanvas: View {
             let scale = proxy.size.width / canvasSize.width
             ZStack(alignment: .topLeading) {
                 ZStack(alignment: .topLeading) {
+                    if store.documents.first(where: { $0.id == documentID })?.kind == .whiteboard {
+                        WhiteboardPaperSurface(template: page.template, colorHex: page.paperColorHex)
+                            .frame(width: canvasSize.width, height: canvasSize.height)
+                    } else {
                     PageBackground(
                         documentID: documentID,
                         page: page,
+                        store: store,
                         sourcePDF: sourcePDF,
                         imageSize: CGSize(width: canvasSize.width * 3, height: canvasSize.height * 3)
                     )
                     .frame(width: canvasSize.width, height: canvasSize.height)
+                    }
 
-                    ForEach(page.images) { pageImage in
+                    ForEach(previewContent?.images ?? page.images) { pageImage in
                         if let image = store.pageImage(documentID: documentID, pageID: page.id, image: pageImage) {
                             Image(uiImage: image)
                                 .resizable()
@@ -1360,26 +1416,43 @@ private struct EditablePageCanvas: View {
                     }
 
                     PencilCanvasView(
-                        drawing: store.drawing(documentID: documentID, pageID: page.id),
+                        drawing: previewContent?.drawing ?? store.drawing(documentID: documentID, pageID: page.id),
+                        pageID: page.id,
                         canvasSize: canvasSize,
                         controller: canvasController,
+                        isInfinite: store.documents.first(where: { $0.id == documentID })?.kind == .whiteboard,
+                        coordinateOrigin: page.canvasOffset,
                         inkSettings: inkSettings,
                         isToolPickerVisible: isToolPickerVisible,
+                        onActivate: onActivate,
                         onDrawingChanged: onDrawingChanged
                     )
                     .frame(width: canvasSize.width, height: canvasSize.height)
                     .id(page.id)
 
-                    ForEach(page.textBoxes) { box in
+                    if inkSettings.tool == .hand {
+                        ForEach(page.images) { image in
+                            Rectangle().fill(.clear).contentShape(Rectangle())
+                                .frame(width: image.width, height: image.height)
+                                .rotationEffect(.degrees(image.rotationDegrees))
+                                .position(x: image.x + image.width / 2, y: image.y + image.height / 2)
+                                .onTapGesture { onActivate(); selectedImageID = image.id; selectedTextBoxID = nil; editingTextBoxID = nil }
+                                .accessibilityLabel("Select photo")
+                        }
+                    }
+                    ForEach(previewContent?.textBoxes ?? page.textBoxes) { box in
                         EditableTextBox(
                             box: box,
                             scale: 1,
                             isSelected: selectedTextBoxID == box.id,
                             isEditing: editingTextBoxID == box.id,
                             onSelect: {
-                                selectedTextBoxID = box.id
+                                onActivate(); selectedTextBoxID = box.id
                                 selectedImageID = nil
                                 if editingTextBoxID != box.id { editingTextBoxID = nil }
+                            },
+                            onEdit: {
+                                onActivate(); selectedTextBoxID = box.id; selectedImageID = nil; editingTextBoxID = box.id
                             },
                             onTextChanged: { text in
                                 var updated = page.textBoxes
@@ -1402,6 +1475,7 @@ private struct EditablePageCanvas: View {
                                 onTextBoxesChanged(updated)
                             }
                         )
+                        .allowsHitTesting(inkSettings.tool == .hand || editingTextBoxID == box.id)
                     }
 
                     if let selectedImageID,
@@ -1419,19 +1493,33 @@ private struct EditablePageCanvas: View {
                                 var updated = page.images
                                 guard let index = updated.firstIndex(where: { $0.id == selectedImage.id }) else { return }
                                 let aspect = max(CGFloat(updated[index].width / max(updated[index].height, 1)), 0.05)
-                                let width = min(max(size.width, 60), canvasSize.width - CGFloat(updated[index].x))
-                                let height = min(max(width / aspect, 60), canvasSize.height - CGFloat(updated[index].y))
+                                let maxWidth = min(canvasSize.width - CGFloat(updated[index].x), (canvasSize.height - CGFloat(updated[index].y)) * aspect)
+                                let width = min(max(size.width, 30), maxWidth)
+                                let height = width / aspect
                                 updated[index].width = Double(width)
                                 updated[index].height = Double(height)
                                 onImagesChanged(updated)
                             }
                         )
                     }
+                    if inkSettings.tool == .lasso {
+                        PageLassoOverlay(paper: canvasSize, scale: scale, shape: lassoShape, filter: selectionFilter,
+                                         store: store, documentID: documentID, pageID: page.id, selection: $lassoSelection,
+                                         prepare: {
+                            onActivate(); canvasController.flush()
+                            let current = store.documents.first(where: { $0.id == documentID })?.pages.first(where: { $0.id == page.id }) ?? page
+                            return NotyPageContent(page: current, drawing: store.drawing(documentID: documentID, pageID: page.id))
+                        }, preview: { content in
+                            previewContent = content
+                            if let content { canvasController.previewDrawing(content.drawing) }
+                            else { canvasController.cancelPreview() }
+                        }, commit: onContentChanged)
+                    }
                 }
                 .frame(width: canvasSize.width, height: canvasSize.height)
                 .scaleEffect(scale, anchor: .topLeading)
             }
-            .frame(width: proxy.size.width, height: proxy.size.height)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .background(EditorPalette.paper)
         }
         .aspectRatio(page.canvasSize.width / page.canvasSize.height, contentMode: .fit)
@@ -1440,45 +1528,89 @@ private struct EditablePageCanvas: View {
 
 private struct PencilCanvasView: UIViewRepresentable {
     let drawing: PKDrawing
+    let pageID: UUID
     let canvasSize: CGSize
     let controller: InkCanvasController
+    let isInfinite: Bool
+    let coordinateOrigin: CGPoint
     let inkSettings: EditorInkSettings
     let isToolPickerVisible: Bool
+    let onActivate: () -> Void
     let onDrawingChanged: (PKDrawing) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onDrawingChanged: onDrawingChanged)
+        Coordinator(onActivate: onActivate, onDrawingChanged: onDrawingChanged)
     }
 
     func makeUIView(context: Context) -> PKCanvasView {
         let canvas = PKCanvasView(frame: .zero)
+        canvas.overrideUserInterfaceStyle = .light
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
-        canvas.drawingPolicy = .anyInput
+        canvas.drawingPolicy = inkSettings.fingerDrawing ? .anyInput : .pencilOnly
+        canvas.isUserInteractionEnabled = inkSettings.tool != .hand && inkSettings.tool != .lasso
         canvas.isScrollEnabled = false
         canvas.minimumZoomScale = 1
         canvas.maximumZoomScale = 1
         canvas.contentSize = canvasSize
         canvas.tool = inkSettings.makeTool
         canvas.delegate = context.coordinator
+        context.coordinator.inkSettings = inkSettings
+        let shapeHold = context.coordinator.shapeHold
+        shapeHold.allowedTouchTypes = inkSettings.fingerDrawing ? [NSNumber(value: UITouch.TouchType.pencil.rawValue), NSNumber(value: UITouch.TouchType.direct.rawValue)] : [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        shapeHold.isEnabled = inkSettings.shapeCorrectionEnabled && inkSettings.tool == .ink
+        shapeHold.onBegin = { [weak coordinator = context.coordinator, weak canvas] in
+            coordinator?.strokeOriginal = canvas?.drawing
+        }
+        shapeHold.onRecognize = { [weak coordinator = context.coordinator, weak canvas] shape in
+            guard let coordinator, let canvas, let original = coordinator.strokeOriginal,
+                  let tool = canvas.tool as? PKInkingTool, !canvas.isRulerActive else { return }
+            coordinator.pendingSave?.cancel(); coordinator.pendingSave = nil
+            coordinator.isApplyingExternalDrawing = true
+            coordinator.controller?.completeHeldShape(shape, original: original, tool: tool)
+            coordinator.isApplyingExternalDrawing = false
+        }
+        canvas.addGestureRecognizer(shapeHold)
         context.coordinator.toolPicker.addObserver(canvas)
         context.coordinator.toolPicker.setVisible(isToolPickerVisible, forFirstResponder: canvas)
         context.coordinator.controller = controller
-        controller.attach(canvas, onDrawingChanged: onDrawingChanged)
+        controller.isInfinite = isInfinite; controller.coordinateOrigin = coordinateOrigin
+        controller.attach(canvas, pageID: pageID, onDrawingChanged: onDrawingChanged)
+        controller.applyExternalDrawing = { [weak coordinator = context.coordinator, weak canvas] drawing in
+            guard let coordinator, let canvas else { return }
+            coordinator.pendingSave?.cancel(); coordinator.pendingSave = nil
+            coordinator.isApplyingExternalDrawing = true
+            canvas.undoManager?.disableUndoRegistration()
+            canvas.drawing = drawing
+            canvas.undoManager?.enableUndoRegistration()
+            coordinator.isApplyingExternalDrawing = false
+        }
+        controller.flushPendingSave = { [weak coordinator = context.coordinator, weak canvas] in
+            guard let coordinator, let canvas else { return }
+            coordinator.pendingSave?.cancel(); coordinator.pendingSave = nil
+            coordinator.onDrawingChanged(coordinator.controller?.drawingForPersistence ?? canvas.drawing)
+        }
         canvas.becomeFirstResponder()
         return canvas
     }
 
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
         canvas.contentSize = canvasSize
+        canvas.drawingPolicy = inkSettings.fingerDrawing ? .anyInput : .pencilOnly
+        canvas.isUserInteractionEnabled = inkSettings.tool != .hand && inkSettings.tool != .lasso
+        context.coordinator.onActivate = onActivate
         context.coordinator.onDrawingChanged = onDrawingChanged
         context.coordinator.controller = controller
-        controller.attach(canvas, onDrawingChanged: onDrawingChanged)
+        controller.isInfinite = isInfinite; controller.coordinateOrigin = coordinateOrigin
+        controller.attach(canvas, pageID: pageID, onDrawingChanged: onDrawingChanged)
+        context.coordinator.shapeHold.isEnabled = inkSettings.shapeCorrectionEnabled && inkSettings.tool == .ink && !canvas.isRulerActive
+        context.coordinator.shapeHold.allowedTouchTypes = inkSettings.fingerDrawing ? [NSNumber(value: UITouch.TouchType.pencil.rawValue), NSNumber(value: UITouch.TouchType.direct.rawValue)] : [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
         context.coordinator.toolPicker.setVisible(isToolPickerVisible, forFirstResponder: canvas)
         if context.coordinator.inkSettings != inkSettings {
             canvas.tool = inkSettings.makeTool
             context.coordinator.inkSettings = inkSettings
         }
+        guard !controller.isPreviewing else { return }
         let currentData = canvas.drawing.dataRepresentation()
         let newData = drawing.dataRepresentation()
         if context.coordinator.pendingSave == nil && currentData != newData {
@@ -1488,20 +1620,34 @@ private struct PencilCanvasView: UIViewRepresentable {
         }
     }
 
+    static func dismantleUIView(_ canvas: PKCanvasView, coordinator: Coordinator) {
+        coordinator.pendingSave?.cancel()
+        coordinator.shapeHold.isEnabled = false
+        canvas.removeGestureRecognizer(coordinator.shapeHold)
+        coordinator.onDrawingChanged(coordinator.controller?.drawingForPersistence ?? canvas.drawing)
+        coordinator.toolPicker.removeObserver(canvas)
+        coordinator.toolPicker.setVisible(false, forFirstResponder: canvas)
+    }
+
     final class Coordinator: NSObject, PKCanvasViewDelegate {
         var onDrawingChanged: (PKDrawing) -> Void
         let toolPicker = PKToolPicker()
+        let shapeHold = NotyShapeHoldGestureRecognizer()
+        var strokeOriginal: PKDrawing?
         weak var controller: InkCanvasController?
         var inkSettings: EditorInkSettings?
         var pendingSave: Task<Void, Never>?
         var isApplyingExternalDrawing = false
 
-        init(onDrawingChanged: @escaping (PKDrawing) -> Void) {
-            self.onDrawingChanged = onDrawingChanged
+        var onActivate: () -> Void
+        init(onActivate: @escaping () -> Void, onDrawingChanged: @escaping (PKDrawing) -> Void) {
+            self.onActivate = onActivate; self.onDrawingChanged = onDrawingChanged
         }
+        func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) { onActivate(); controller?.beginStroke() }
+
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            guard !isApplyingExternalDrawing else { return }
+            guard !isApplyingExternalDrawing, controller?.isPreviewing != true else { return }
             pendingSave?.cancel()
             let drawing = canvasView.drawing
             pendingSave = Task { @MainActor [weak self] in
@@ -1515,68 +1661,170 @@ private struct PencilCanvasView: UIViewRepresentable {
         }
 
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
+            guard !isApplyingExternalDrawing else { return }
             pendingSave?.cancel()
             pendingSave = nil
-            onDrawingChanged(canvasView.drawing)
+            controller?.endStroke()
+            onDrawingChanged(controller?.drawingForPersistence ?? canvasView.drawing)
             controller?.refreshUndoState()
         }
     }
 }
 
+private struct PageNavigationRequest: Equatable {
+    let pageID: UUID
+    private let nonce = UUID()
+}
+
+@MainActor
+private final class NotebookCanvasSessions: ObservableObject {
+    private var controllers: [UUID: InkCanvasController] = [:]
+    private var observers: [UUID: AnyCancellable] = [:]
+    private let fallback = InkCanvasController()
+    func controller(for pageID: UUID?) -> InkCanvasController {
+        guard let pageID else { return fallback }
+        if let controller = controllers[pageID] { return controller }
+        let controller = InkCanvasController()
+        controllers[pageID] = controller
+        observers[pageID] = controller.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        return controller
+    }
+    func flushAll() { controllers.values.forEach { $0.flush() } }
+}
+
 @MainActor
 private final class InkCanvasController: ObservableObject {
     @Published private(set) var undoState = 0
+    @Published private(set) var undoRevision = 0
     weak var canvasView: PKCanvasView?
     var onDrawingChanged: ((PKDrawing) -> Void)?
+    private weak var observedUndoManager: UndoManager?
+    private var undoObservers: [NSObjectProtocol] = []
+    var flushPendingSave: (() -> Void)?
+    var applyExternalDrawing: ((PKDrawing) -> Void)?
+    private var previewOriginal: PKDrawing?
+    private var pageID: UUID?
+    private var rulerIsVisible = false
+    var isInfinite = false
+    var coordinateOrigin = CGPoint.zero
+    private let boardUndoManager = UndoManager()
+    private var strokeBeforeDrawing: PKDrawing?
+    var isPreviewing: Bool { previewOriginal != nil }
+    var drawingForPersistence: PKDrawing? { previewOriginal ?? canvasView?.drawing }
+    func flush() { flushPendingSave?() }
+
+    func previewDrawing(_ drawing: PKDrawing) {
+        if previewOriginal == nil { flush(); previewOriginal = canvasView?.drawing }
+        applyExternalDrawing?(drawing)
+    }
+    func cancelPreview() {
+        guard let original = previewOriginal else { return }
+        applyExternalDrawing?(original)
+        previewOriginal = nil
+    }
+    func applyDrawing(_ drawing: PKDrawing, pageID: UUID) {
+        guard self.pageID == pageID else { return }
+        cancelPreview()
+        applyExternalDrawing?(drawing)
+        refreshUndoState()
+    }
+
+    var undoManager: UndoManager? { isInfinite ? boardUndoManager : canvasView?.undoManager }
 
     var canUndo: Bool {
         _ = undoState
-        return canvasView?.undoManager?.canUndo == true
+        return undoManager?.canUndo == true
     }
     var canRedo: Bool {
         _ = undoState
-        return canvasView?.undoManager?.canRedo == true
+        return undoManager?.canRedo == true
     }
     var isRulerActive: Bool { canvasView?.isRulerActive == true }
 
-    func attach(_ canvas: PKCanvasView, onDrawingChanged: @escaping (PKDrawing) -> Void) {
+    func attach(_ canvas: PKCanvasView, pageID: UUID, onDrawingChanged: @escaping (PKDrawing) -> Void) {
+        if canvasView !== canvas { cancelPreview() }
         canvasView = canvas
+        canvas.isRulerActive = rulerIsVisible
+        self.pageID = pageID
         self.onDrawingChanged = onDrawingChanged
+        if let manager = undoManager, observedUndoManager !== manager {
+            undoObservers.forEach(NotificationCenter.default.removeObserver)
+            observedUndoManager = manager
+            undoObservers = [Notification.Name.NSUndoManagerDidCloseUndoGroup, .NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange].map { name in
+                NotificationCenter.default.addObserver(forName: name, object: manager, queue: .main) { [weak self] _ in
+                    Task { @MainActor in
+                        await Task.yield()
+                        if name == .NSUndoManagerDidUndoChange || name == .NSUndoManagerDidRedoChange { self?.undoRevision &+= 1 }
+                        self?.refreshUndoState()
+                    }
+                }
+            }
+        }
     }
 
+    deinit { undoObservers.forEach(NotificationCenter.default.removeObserver) }
+
     func undo() {
-        canvasView?.undoManager?.undo()
+        cancelPreview()
+        undoManager?.undo()
         refreshUndoState()
     }
 
     func redo() {
-        canvasView?.undoManager?.redo()
+        cancelPreview()
+        undoManager?.redo()
         refreshUndoState()
     }
 
     func toggleRuler() {
         guard let canvasView else { return }
-        canvasView.isRulerActive.toggle()
+        rulerIsVisible.toggle()
+        canvasView.isRulerActive = rulerIsVisible
         refreshUndoState()
     }
 
-    func insertShape(_ shape: EditorShape, color: UIColor, width: Double, canvasSize: CGSize) {
+    func completeHeldShape(_ shape: NotyRecognizedShape, original: PKDrawing, tool: PKInkingTool) {
         guard let canvas = canvasView else { return }
-        let points = shape.controlPoints(in: canvasSize)
-        let strokePoints = points.enumerated().map { index, point in
-            PKStrokePoint(
-                location: point,
-                timeOffset: Double(index) * 0.01,
-                size: CGSize(width: width, height: width),
-                opacity: 1,
-                force: 1,
-                azimuth: 0,
-                altitude: .pi / 2
-            )
+        canvas.undoManager?.disableUndoRegistration()
+        canvas.drawingGestureRecognizer.isEnabled = false
+        canvas.drawing = PKDrawing(strokes: original.strokes + [shape.stroke(ink: PKInk(tool.inkType, color: tool.color), width: tool.width)])
+        canvas.drawingGestureRecognizer.isEnabled = true
+        canvas.undoManager?.enableUndoRegistration()
+        strokeBeforeDrawing = nil
+        registerDrawingUndo(on: canvas, restoring: original)
+        undoManager?.setActionName("Perfect shape")
+        onDrawingChanged?(canvas.drawing)
+        refreshUndoState()
+    }
+
+    func translateCoordinateOrigin(by transform: CGAffineTransform) {
+        coordinateOrigin.x += transform.tx; coordinateOrigin.y += transform.ty
+    }
+    func beginStroke() { if isInfinite { strokeBeforeDrawing = canvasView?.drawing } }
+    func endStroke() {
+        guard isInfinite, let original = strokeBeforeDrawing, let canvas = canvasView else { return }
+        strokeBeforeDrawing = nil
+        if original.dataRepresentation() != canvas.drawing.dataRepresentation() {
+            registerDrawingUndo(on: canvas, restoring: original)
+            undoManager?.setActionName("Ink")
         }
-        let path = PKStrokePath(controlPoints: strokePoints, creationDate: Date())
-        let ink = PKInk(.pen, color: color)
-        let stroke = PKStroke(ink: ink, path: path, transform: .identity, mask: nil)
+        canvas.undoManager?.removeAllActions()
+    }
+
+    func insertShape(_ shape: EditorShape, color: UIColor, width: Double, canvasSize: CGSize, center: CGPoint? = nil) {
+        guard let canvas = canvasView else { return }
+        let size = center == nil ? canvasSize : CGSize(width: 612, height: 792)
+        let points = shape.controlPoints(in: size).map { point in
+            guard let center else { return point }
+            return CGPoint(x: point.x + center.x - size.width / 2, y: point.y + center.y - size.height / 2)
+        }
+        let kind: NotyRecognizedShape.Kind = switch shape {
+        case .line: .line
+        case .rectangle: .rectangle
+        case .ellipse: .ellipse
+        }
+        let stroke = NotyRecognizedShape(kind: kind, points: points)
+            .stroke(ink: PKInk(.pen, color: color), width: width)
         let previous = canvas.drawing
         registerDrawingUndo(on: canvas, restoring: previous)
         canvas.drawing = PKDrawing(strokes: previous.strokes + [stroke])
@@ -1589,14 +1837,18 @@ private final class InkCanvasController: ObservableObject {
     }
 
     private func registerDrawingUndo(on canvas: PKCanvasView, restoring drawing: PKDrawing) {
-        canvas.undoManager?.registerUndo(withTarget: canvas) { [weak self] target in
-            let inverseDrawing = target.drawing
-            self?.registerDrawingUndo(on: target, restoring: inverseDrawing)
-            target.drawing = drawing
-            self?.onDrawingChanged?(target.drawing)
-            self?.refreshUndoState()
+        let origin = isInfinite ? coordinateOrigin : .zero
+        let worldDrawing = drawing.transformed(using: CGAffineTransform(translationX: -origin.x, y: -origin.y))
+        undoManager?.registerUndo(withTarget: canvas) { [weak self] target in
+            guard let self else { return }
+            self.registerDrawingUndo(on: target, restoring: target.drawing)
+            let currentOrigin = self.isInfinite ? self.coordinateOrigin : .zero
+            target.drawing = worldDrawing.transformed(using: CGAffineTransform(translationX: currentOrigin.x, y: currentOrigin.y))
+            self.onDrawingChanged?(target.drawing)
+            self.refreshUndoState()
         }
     }
+
 }
 
 private enum EditorInkType: String, CaseIterable, Identifiable {
@@ -1643,13 +1895,22 @@ private struct EditorInkSettings: Equatable {
     let type: EditorInkType
     let color: UIColor
     let width: CGFloat
+    var tool: EditorDrawingTool = .ink
+    var fingerDrawing = false
+    var eraserWidth: CGFloat = 20
+    var eraseWholeStrokes = false
+    var shapeCorrectionEnabled = true
 
     static func == (lhs: EditorInkSettings, rhs: EditorInkSettings) -> Bool {
-        lhs.type == rhs.type && lhs.color.isEqual(rhs.color) && lhs.width == rhs.width
+        lhs.type == rhs.type && lhs.color.isEqual(rhs.color) && lhs.width == rhs.width && lhs.tool == rhs.tool && lhs.fingerDrawing == rhs.fingerDrawing && lhs.eraserWidth == rhs.eraserWidth && lhs.eraseWholeStrokes == rhs.eraseWholeStrokes && lhs.shapeCorrectionEnabled == rhs.shapeCorrectionEnabled
     }
 
     var makeTool: any PKTool {
-        PKInkingTool(type.inkType, color: color, width: width)
+        switch tool {
+        case .ink, .hand: PKInkingTool(type.inkType, color: color, width: width)
+        case .eraser: eraseWholeStrokes ? PKEraserTool(.vector) : PKEraserTool(.bitmap, width: eraserWidth)
+        case .lasso: PKLassoTool()
+        }
     }
 }
 
@@ -1732,13 +1993,16 @@ private enum EditorShape {
 private struct PageBackground: View {
     let documentID: UUID
     let page: NotyPage
+    let store: NotyStore
     let sourcePDF: PDFDocument?
     let imageSize: CGSize
 
     var body: some View {
         ZStack {
             Color(hex: page.paperColorHex)
-            if let sourcePageIndex = page.sourcePageIndex, let sourcePDF {
+            if page.isCover, let document = store.documents.first(where: { $0.id == documentID }) {
+                NotebookCoverView(title: document.title, cover: document.displayCover, image: store.coverImage(for: document), pageSize: page.canvasSize)
+            } else if let sourcePageIndex = page.sourcePageIndex, let sourcePDF {
                 PDFPageBackground(documentID: documentID, pageIndex: sourcePageIndex, sourcePDF: sourcePDF, imageSize: imageSize)
             } else {
                 PageTemplateView(template: page.template, paperColorHex: page.paperColorHex)
@@ -1769,7 +2033,8 @@ private struct PDFPageBackground: View {
                 snapshot = nil
                 return
             }
-            snapshot = sourcePage.thumbnail(of: imageSize, for: .mediaBox)
+            let factor = min(1, 4_096 / max(imageSize.width, imageSize.height))
+            snapshot = sourcePage.thumbnail(of: CGSize(width: imageSize.width * factor, height: imageSize.height * factor), for: .mediaBox)
         }
         .accessibilityHidden(true)
     }
@@ -1778,72 +2043,7 @@ private struct PDFPageBackground: View {
 private struct PageTemplateView: View {
     let template: NotyPageTemplate
     let paperColorHex: String
-
-    private var line: Color {
-        UIColor(hex: paperColorHex).isDarkBackground
-            ? Color.white.opacity(0.24)
-            : NotionTheme.templateLine
-    }
-
-    var body: some View {
-        Canvas { context, size in
-            switch template {
-            case .blank:
-                break
-            case .ruled, .narrowRuled:
-                let spacing = template == .narrowRuled ? 20.0 : 28.0
-                stride(from: 34.0, through: size.height, by: spacing).forEach { y in
-                    var path = Path()
-                    path.move(to: CGPoint(x: 28, y: y))
-                    path.addLine(to: CGPoint(x: size.width - 24, y: y))
-                    context.stroke(path, with: .color(line), lineWidth: 0.7)
-                }
-                var margin = Path()
-                margin.move(to: CGPoint(x: min(56, size.width * 0.12), y: 0))
-                margin.addLine(to: CGPoint(x: min(56, size.width * 0.12), y: size.height))
-                context.stroke(margin, with: .color(line.opacity(0.7)), lineWidth: 0.7)
-            case .grid, .smallGrid:
-                let spacing = template == .smallGrid ? 16.0 : 24.0
-                stride(from: spacing, through: size.width, by: spacing).forEach { x in
-                    var path = Path()
-                    path.move(to: CGPoint(x: x, y: 0))
-                    path.addLine(to: CGPoint(x: x, y: size.height))
-                    context.stroke(path, with: .color(line.opacity(0.8)), lineWidth: 0.55)
-                }
-                stride(from: spacing, through: size.height, by: spacing).forEach { y in
-                    var path = Path()
-                    path.move(to: CGPoint(x: 0, y: y))
-                    path.addLine(to: CGPoint(x: size.width, y: y))
-                    context.stroke(path, with: .color(line.opacity(0.8)), lineWidth: 0.55)
-                }
-            case .dots:
-                for x in stride(from: 18.0, through: size.width, by: 24.0) {
-                    for y in stride(from: 18.0, through: size.height, by: 24.0) {
-                        let rect = CGRect(x: x - 0.9, y: y - 0.9, width: 1.8, height: 1.8)
-                        context.fill(Path(ellipseIn: rect), with: .color(line))
-                    }
-                }
-            case .cornell:
-                let cueX = max(90, size.width * 0.3)
-                let summaryY = max(120, size.height - 110)
-                var divider = Path()
-                divider.move(to: CGPoint(x: cueX, y: 54))
-                divider.addLine(to: CGPoint(x: cueX, y: summaryY))
-                divider.move(to: CGPoint(x: 24, y: 54))
-                divider.addLine(to: CGPoint(x: size.width - 24, y: 54))
-                divider.move(to: CGPoint(x: 24, y: summaryY))
-                divider.addLine(to: CGPoint(x: size.width - 24, y: summaryY))
-                context.stroke(divider, with: .color(line.opacity(0.9)), lineWidth: 0.8)
-                stride(from: 82.0, through: summaryY - 12, by: 28.0).forEach { y in
-                    var path = Path()
-                    path.move(to: CGPoint(x: cueX + 12, y: y))
-                    path.addLine(to: CGPoint(x: size.width - 24, y: y))
-                    context.stroke(path, with: .color(line.opacity(0.75)), lineWidth: 0.55)
-                }
-            }
-        }
-        .allowsHitTesting(false)
-    }
+    var body: some View { PaperTemplateSurface(template: template, paperColorHex: paperColorHex) }
 }
 
 private struct EditableImageSelection: View {
@@ -1922,12 +2122,78 @@ private struct EditableImageSelection: View {
     }
 }
 
+struct PageTextEditor: UIViewRepresentable {
+    @Binding var text: String
+    let box: NotyTextBox
+    let scale: CGFloat
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+    func makeUIView(context: Context) -> UITextView {
+        let view = FocusingTextView()
+        view.backgroundColor = .clear
+        view.delegate = context.coordinator
+        view.textContainerInset = UIEdgeInsets(top: 8, left: 9, bottom: 8, right: 9)
+        view.textContainer.lineFragmentPadding = 0
+        return view
+    }
+    func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.text = $text
+        let size = max(1, box.fontSize * Double(scale))
+        let inset = box.contentInsetScale * Double(scale)
+        view.textContainerInset = UIEdgeInsets(top: 8 * inset, left: 9 * inset, bottom: 8 * inset, right: 9 * inset)
+        var descriptor = box.fontName.map { UIFontDescriptor().withFamily($0) } ?? UIFont.systemFont(ofSize: size).fontDescriptor
+        var traits = descriptor.symbolicTraits
+        if box.isBold { traits.insert(.traitBold) }
+        if box.isItalic { traits.insert(.traitItalic) }
+        descriptor = descriptor.withSymbolicTraits(traits) ?? descriptor
+        let font = UIFont(descriptor: descriptor, size: size)
+        let color = UIColor(notyHex: box.colorHex)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = box.alignment == .leading ? .left : box.alignment == .center ? .center : .right
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color, .paragraphStyle: paragraph, .underlineStyle: box.isUnderlined ? NSUnderlineStyle.single.rawValue : 0]
+        let old = context.coordinator.style
+        let styleChanged = old?.fontName != box.fontName || old?.fontSize != box.fontSize || old?.isBold != box.isBold || old?.isItalic != box.isItalic || old?.isUnderlined != box.isUnderlined || old?.colorHex != box.colorHex || old?.alignment != box.alignment || context.coordinator.scale != scale
+        if view.markedTextRange == nil && (view.text != text || styleChanged) {
+            let selection = view.selectedRange
+            view.attributedText = NSAttributedString(string: text, attributes: attributes)
+            let length = (text as NSString).length
+            view.selectedRange = NSRange(location: min(selection.location, length), length: min(selection.length, max(0, length - selection.location)))
+            context.coordinator.style = box
+            context.coordinator.scale = scale
+        }
+        if styleChanged { view.typingAttributes = attributes }
+    }
+    static func dismantleUIView(_ view: UITextView, coordinator: Coordinator) {
+        view.resignFirstResponder(); view.delegate = nil
+    }
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var text: Binding<String>
+        var style: NotyTextBox?
+        var scale: CGFloat?
+        init(text: Binding<String>) { self.text = text }
+        func textViewDidChange(_ textView: UITextView) { text.wrappedValue = textView.text }
+    }
+    private final class FocusingTextView: UITextView {
+        private var needsInitialFocus = true
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window != nil, needsInitialFocus {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.window != nil, self.needsInitialFocus else { return }
+                    self.needsInitialFocus = !self.becomeFirstResponder()
+                }
+            }
+        }
+    }
+}
+
 private struct EditableTextBox: View {
     let box: NotyTextBox
     let scale: CGFloat
     let isSelected: Bool
     let isEditing: Bool
     let onSelect: () -> Void
+    let onEdit: () -> Void
     let onTextChanged: (String) -> Void
     let onMove: (CGPoint) -> Void
     let onResize: (CGSize) -> Void
@@ -1937,10 +2203,9 @@ private struct EditableTextBox: View {
     @State private var dragOrigin = CGPoint.zero
     @State private var resizeOrigin: CGSize?
     @State private var isResizing = false
-    @FocusState private var isFocused: Bool
 
     private var styledFont: Font {
-        let size = max(10, CGFloat(box.fontSize) * scale)
+        let size = max(1, CGFloat(box.fontSize) * scale)
         var font = box.fontName.map { Font.custom($0, size: size) } ?? Font.system(size: size)
         if box.isBold { font = font.weight(.bold) }
         if box.isItalic { font = font.italic() }
@@ -1950,14 +2215,8 @@ private struct EditableTextBox: View {
     var body: some View {
         Group {
             if isEditing {
-                TextEditor(text: $text)
-                    .font(styledFont)
-                    .foregroundStyle(Color(hex: box.colorHex))
-                    .multilineTextAlignment(box.alignment.textAlignment)
-                    .scrollContentBackground(.hidden)
-                    .focused($isFocused)
+                PageTextEditor(text: $text, box: box, scale: scale)
                     .onChange(of: text) { _, newValue in onTextChanged(newValue) }
-                    .padding(5 * scale)
             } else {
                 Text(box.text.isEmpty ? " " : box.text)
                     .font(styledFont)
@@ -1966,14 +2225,17 @@ private struct EditableTextBox: View {
                     .multilineTextAlignment(box.alignment.textAlignment)
                     .lineLimit(nil)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: box.alignment.frameAlignment)
-                    .padding(9 * scale)
+                    .padding(.horizontal, 9 * scale * box.contentInsetScale)
+                    .padding(.vertical, 8 * scale * box.contentInsetScale)
                     .contentShape(Rectangle())
+                    .onTapGesture(count: 2, perform: onEdit)
+                    .onTapGesture(perform: onSelect)
             }
         }
         .background {
             if isSelected || isEditing {
                 RoundedRectangle(cornerRadius: 6 * scale)
-                    .fill(EditorPalette.paper)
+                    .fill(EditorPalette.accent.opacity(0.035))
             }
         }
         .overlay {
@@ -2014,7 +2276,6 @@ private struct EditableTextBox: View {
         .frame(width: CGFloat(box.width) * scale, height: CGFloat(box.height) * scale)
         .position(x: (CGFloat(box.x) + CGFloat(box.width) / 2) * scale, y: (CGFloat(box.y) + CGFloat(box.height) / 2) * scale)
         .offset(dragOffset)
-        .onTapGesture(perform: onSelect)
         .simultaneousGesture(
             DragGesture(minimumDistance: 6)
                 .onChanged { value in
@@ -2031,19 +2292,16 @@ private struct EditableTextBox: View {
                     onSelect()
                 }
         )
-        .onChange(of: isEditing) { _, editing in
-            isFocused = editing
-        }
         .onChange(of: box.text) { _, newText in
             if text != newText { text = newText }
         }
         .onAppear {
             text = box.text
-            isFocused = isEditing
         }
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: isEditing ? .contain : .ignore)
         .accessibilityLabel(box.text.isEmpty ? "Text box" : box.text)
-        .accessibilityHint(isEditing ? "Edit text" : "Drag to move")
+        .accessibilityHint(isEditing ? "Edit text" : "Drag to move. Double-tap to edit.")
+        .accessibilityAction(named: "Edit text", onEdit)
     }
 }
 
@@ -2081,7 +2339,7 @@ private extension NotyTextAlignment {
     }
 }
 
-private struct PageThumbnail: View {
+struct PageThumbnail: View {
     let documentID: UUID
     let page: NotyPage
     let number: Int
@@ -2094,7 +2352,7 @@ private struct PageThumbnail: View {
         Button(action: action) {
             VStack(spacing: 6) {
                 ZStack {
-                    PageBackground(documentID: documentID, page: page, sourcePDF: sourcePDF, imageSize: CGSize(width: 360, height: 466))
+                    PageBackground(documentID: documentID, page: page, store: store, sourcePDF: sourcePDF, imageSize: CGSize(width: 360, height: 466))
                     GeometryReader { proxy in
                         let scale = proxy.size.width / page.canvasSize.width
                         ForEach(page.images) { pageImage in
@@ -2119,10 +2377,18 @@ private struct PageThumbnail: View {
 
                     let drawing = store.drawing(documentID: documentID, pageID: page.id)
                     if !drawing.strokes.isEmpty {
-                        Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: page.canvasSize), scale: 0.35))
+                        Image(uiImage: drawing.notyImage(from: CGRect(origin: .zero, size: page.canvasSize), scale: min(0.35, 512 / max(page.canvasSize.width, page.canvasSize.height))))
                             .resizable()
                             .scaledToFill()
                     }
+                    GeometryReader { proxy in
+                        let scale = proxy.size.width / page.canvasSize.width
+                        ZStack(alignment: .topLeading) {
+                            ForEach(page.textBoxes) { PresentedTextBox(box: $0) }
+                        }
+                        .frame(width: page.canvasSize.width, height: page.canvasSize.height)
+                        .scaleEffect(scale, anchor: .topLeading)
+                    }.allowsHitTesting(false)
                     if page.isBookmarked {
                         Image(systemName: "bookmark.fill")
                             .font(.system(size: 8, weight: .semibold))
@@ -2141,7 +2407,7 @@ private struct PageThumbnail: View {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Page \(number)")
+        .accessibilityLabel(page.isCover ? "Notebook cover, page \(number)" : "Page \(number)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
@@ -2176,7 +2442,7 @@ private struct EditorToolbarButtonStyle: ButtonStyle {
         configuration.label
             .foregroundStyle(configuration.isPressed ? NotionTheme.accent : NotionTheme.ink)
             .padding(.horizontal, 7)
-            .frame(height: 30)
+            .frame(minWidth: 44, minHeight: 44)
             .background(
                 configuration.isPressed ? NotionTheme.rowPressed : Color.clear,
                 in: RoundedRectangle(cornerRadius: NotionTheme.radiusMedium)
@@ -2205,6 +2471,7 @@ private extension NotyDocumentKind {
         switch self {
         case .note, .book: "Notebook"
         case .pdf: "PDF document"
+        case .whiteboard: "Whiteboard"
         }
     }
 
@@ -2212,32 +2479,14 @@ private extension NotyDocumentKind {
         switch self {
         case .note, .book: "book.closed"
         case .pdf: "doc.richtext"
+        case .whiteboard: "rectangle.and.pencil.and.ellipsis"
         }
     }
 }
 
 private extension NotyPageTemplate {
-    var editorLabel: String {
-        switch self {
-        case .blank: "Blank"
-        case .ruled: "Ruled"
-        case .narrowRuled: "Narrow ruled"
-        case .grid: "Grid"
-        case .smallGrid: "Small grid"
-        case .dots: "Dotted"
-        case .cornell: "Cornell"
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .blank: "square"
-        case .ruled, .narrowRuled: "line.3.horizontal"
-        case .grid, .smallGrid: "grid"
-        case .dots: "circle.grid.3x3"
-        case .cornell: "rectangle.split.2x1"
-        }
-    }
+    var editorLabel: String { title }
+    var symbolName: String { icon }
 }
 
 private extension NotyPageSizePreset {
@@ -2278,3 +2527,6 @@ private extension NotyPageOrientation {
         }
     }
 }
+
+private enum EditorDrawingTool { case ink, eraser, lasso, hand }
+private enum EditorToolSettings { case pen, highlighter, eraser, lasso, text, photo, hand }

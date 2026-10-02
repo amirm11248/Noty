@@ -10,14 +10,15 @@ enum NotyExportService {
 
     /// Creates a uniquely named, user-facing PDF in Documents so it remains available
     /// after the share sheet closes and can be saved or uploaded later.
-    static func exportPDF(documentID: UUID, store: NotyStore) throws -> URL {
+    static func exportPDF(documentID: UUID, store: NotyStore, selectedPageIDs: Set<UUID>? = nil) throws -> URL {
         guard let document = store.documents.first(where: { $0.id == documentID }) else {
             throw NotyExportError.documentUnavailable
         }
-        guard !document.pages.isEmpty else { throw NotyExportError.noPages }
+        let pages = document.pages.filter { selectedPageIDs?.contains($0.id) ?? true }
+        guard !pages.isEmpty else { throw NotyExportError.noPages }
         let directory = try exportDirectory()
         let fileURL = directory.appendingPathComponent("\(safeName(document.title))-\(UUID().uuidString.prefix(8)).pdf")
-        try makePDF(document: document, store: store).write(to: fileURL, options: .atomic)
+        try makePDF(document: document, store: store, pages: pages).write(to: fileURL, options: .atomic)
         return fileURL
     }
 
@@ -50,15 +51,51 @@ enum NotyExportService {
         return fileURL
     }
 
-    private static func makePDF(document: NotyDocument, store: NotyStore) throws -> Data {
+    private static func makePDF(document: NotyDocument, store: NotyStore, pages: [NotyPage]? = nil) throws -> Data {
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: defaultCanvasSize))
         let sourcePDF = store.sourcePDF(documentID: document.id)
         return renderer.pdfData { context in
-            for page in document.pages {
-                let bounds = CGRect(origin: .zero, size: page.canvasSize)
-                context.beginPage(withBounds: bounds, pageInfo: [:])
-                drawPage(page, documentID: document.id, store: store, sourcePDF: sourcePDF, in: context.cgContext)
+            for page in pages ?? document.pages {
+                let bounds = renderBounds(page, documentID: document.id, store: store)
+                context.beginPage(withBounds: CGRect(origin: .zero, size: bounds.size), pageInfo: [:])
+                context.cgContext.translateBy(x: -bounds.minX, y: -bounds.minY)
+                drawPage(page, documentID: document.id, store: store, sourcePDF: sourcePDF, in: context.cgContext, bounds: bounds)
             }
+        }
+    }
+
+    static func renderBounds(_ page: NotyPage, documentID: UUID, store: NotyStore) -> CGRect {
+        guard store.documents.first(where: { $0.id == documentID })?.kind == .whiteboard else { return CGRect(origin: .zero, size: page.canvasSize) }
+        let drawing = store.drawing(documentID: documentID, pageID: page.id)
+        var bounds = drawing.strokes.isEmpty ? CGRect.null : drawing.bounds
+        for box in page.textBoxes { bounds = bounds.union(CGRect(x: box.x, y: box.y, width: box.width, height: box.height)) }
+        for image in page.images {
+            let angle = image.rotationDegrees * .pi / 180
+            let width = abs(image.width * cos(angle)) + abs(image.height * sin(angle))
+            let height = abs(image.width * sin(angle)) + abs(image.height * cos(angle))
+            bounds = bounds.union(CGRect(x: image.x + image.width / 2 - width / 2, y: image.y + image.height / 2 - height / 2, width: width, height: height))
+        }
+        return bounds.isNull || bounds.isEmpty ? CGRect(origin: .zero, size: defaultCanvasSize) : bounds.insetBy(dx: -48, dy: -48).integral
+    }
+
+    private static func drawBoardTemplate(_ page: NotyPage, bounds: CGRect, context: CGContext) {
+        guard page.template != .blank else { return }
+        let spacing: CGFloat = page.template == .smallGrid ? 16 : page.template == .narrowRuled ? 20 : 24
+        let dark = UIColor(notyHex: page.paperColorHex).notyIsDark
+        let ink = (dark ? UIColor.white : UIColor.darkGray).withAlphaComponent(0.2)
+        context.setStrokeColor(ink.cgColor); context.setFillColor(ink.cgColor); context.setLineWidth(0.6)
+        let firstX = floor(bounds.minX / spacing) * spacing
+        let firstY = floor(bounds.minY / spacing) * spacing
+        if page.template == .dots {
+            for x in stride(from: firstX, through: bounds.maxX, by: spacing) {
+                for y in stride(from: firstY, through: bounds.maxY, by: spacing) { context.fillEllipse(in: CGRect(x: x + spacing / 2 - 0.8, y: y + spacing / 2 - 0.8, width: 1.6, height: 1.6)) }
+            }
+        } else {
+            for y in stride(from: firstY, through: bounds.maxY, by: spacing) { context.move(to: CGPoint(x: bounds.minX, y: y)); context.addLine(to: CGPoint(x: bounds.maxX, y: y)) }
+            if page.template != .ruled && page.template != .narrowRuled {
+                for x in stride(from: firstX, through: bounds.maxX, by: spacing) { context.move(to: CGPoint(x: x, y: bounds.minY)); context.addLine(to: CGPoint(x: x, y: bounds.maxY)) }
+            }
+            context.strokePath()
         }
     }
 
@@ -69,12 +106,14 @@ enum NotyExportService {
         sourcePDF: PDFDocument?,
         scale: CGFloat
     ) -> UIImage {
+        let bounds = renderBounds(page, documentID: documentID, store: store)
         let format = UIGraphicsImageRendererFormat()
-        format.scale = scale
+        format.scale = min(scale, 4_096 / max(bounds.width, bounds.height))
         format.opaque = true
-        let renderer = UIGraphicsImageRenderer(size: page.canvasSize, format: format)
+        let renderer = UIGraphicsImageRenderer(size: bounds.size, format: format)
         return renderer.image { context in
-            drawPage(page, documentID: documentID, store: store, sourcePDF: sourcePDF, in: context.cgContext)
+            context.cgContext.translateBy(x: -bounds.minX, y: -bounds.minY)
+            drawPage(page, documentID: documentID, store: store, sourcePDF: sourcePDF, in: context.cgContext, bounds: bounds)
         }
     }
 
@@ -83,21 +122,27 @@ enum NotyExportService {
         documentID: UUID,
         store: NotyStore,
         sourcePDF: PDFDocument?,
-        in cgContext: CGContext
+        in cgContext: CGContext,
+        bounds: CGRect
     ) {
-        let bounds = CGRect(origin: .zero, size: page.canvasSize)
         color(hex: page.paperColorHex).setFill()
         cgContext.fill(bounds)
 
-        if let sourcePageIndex = page.sourcePageIndex,
+        if page.isCover, let document = store.documents.first(where: { $0.id == documentID }) {
+            let renderer = ImageRenderer(content: NotebookCoverView(title: document.title, cover: document.displayCover, image: store.coverImage(for: document, maximumPixelSize: 4_096), pageSize: page.canvasSize).frame(width: bounds.width, height: bounds.height))
+            renderer.scale = min(3, 4_096 / max(bounds.width, bounds.height))
+            renderer.uiImage?.draw(in: bounds)
+        } else if let sourcePageIndex = page.sourcePageIndex,
            let sourcePage = sourcePDF?.page(at: sourcePageIndex) {
             drawOriginalPDFPage(sourcePage, into: bounds, context: cgContext)
+        } else if store.documents.first(where: { $0.id == documentID })?.kind == .whiteboard {
+            drawBoardTemplate(page, bounds: bounds, context: cgContext)
         } else {
             drawTemplate(page.template, paperColorHex: page.paperColorHex, bounds: bounds, in: cgContext)
         }
 
         for pageImage in page.images {
-            if let image = store.pageImage(documentID: documentID, pageID: page.id, image: pageImage) {
+            if let image = store.pageImage(documentID: documentID, pageID: page.id, image: pageImage, maximumPixelSize: 4_096) {
                 drawPageImage(pageImage, image: image, in: cgContext)
             }
         }
@@ -106,7 +151,7 @@ enum NotyExportService {
         if !drawing.strokes.isEmpty {
             // High-resolution transparent raster keeps PencilKit pressure, blend and
             // eraser results intact while the source PDF remains vector-backed.
-            let image = drawing.image(from: bounds, scale: 4)
+            let image = drawing.notyImage(from: bounds, scale: min(4, 4_096 / max(bounds.width, bounds.height)))
             image.draw(in: bounds)
         }
 
@@ -163,60 +208,11 @@ enum NotyExportService {
         context.saveGState()
         context.setStrokeColor(lineColor)
         context.setFillColor(lineColor)
-        switch template {
-        case .blank:
-            break
-        case .ruled, .narrowRuled:
-            let spacing = template == .narrowRuled ? 20.0 : 28.0
-            context.setLineWidth(0.7)
-            for y in stride(from: 34.0, through: bounds.height, by: spacing) {
-                context.move(to: CGPoint(x: 28, y: y))
-                context.addLine(to: CGPoint(x: bounds.width - 24, y: y))
-            }
-            context.strokePath()
-            context.setAlpha(0.65)
-            let marginX = min(56, bounds.width * 0.12)
-            context.move(to: CGPoint(x: marginX, y: 0))
-            context.addLine(to: CGPoint(x: marginX, y: bounds.height))
-            context.strokePath()
-        case .grid, .smallGrid:
-            let spacing = template == .smallGrid ? 16.0 : 24.0
-            context.setLineWidth(0.55)
-            context.setAlpha(0.8)
-            for x in stride(from: spacing, through: bounds.width, by: spacing) {
-                context.move(to: CGPoint(x: x, y: 0))
-                context.addLine(to: CGPoint(x: x, y: bounds.height))
-            }
-            for y in stride(from: spacing, through: bounds.height, by: spacing) {
-                context.move(to: CGPoint(x: 0, y: y))
-                context.addLine(to: CGPoint(x: bounds.width, y: y))
-            }
-            context.strokePath()
-        case .dots:
-            context.setAlpha(0.85)
-            for x in stride(from: 18.0, through: bounds.width, by: 24.0) {
-                for y in stride(from: 18.0, through: bounds.height, by: 24.0) {
-                    context.fillEllipse(in: CGRect(x: x - 0.9, y: y - 0.9, width: 1.8, height: 1.8))
-                }
-            }
-        case .cornell:
-            let cueX = max(90, bounds.width * 0.3)
-            let summaryY = max(120, bounds.height - 110)
-            context.setLineWidth(0.8)
-            context.move(to: CGPoint(x: cueX, y: 54))
-            context.addLine(to: CGPoint(x: cueX, y: summaryY))
-            context.move(to: CGPoint(x: 24, y: 54))
-            context.addLine(to: CGPoint(x: bounds.width - 24, y: 54))
-            context.move(to: CGPoint(x: 24, y: summaryY))
-            context.addLine(to: CGPoint(x: bounds.width - 24, y: summaryY))
-            context.strokePath()
-            context.setLineWidth(0.55)
-            context.setAlpha(0.75)
-            for y in stride(from: 82.0, through: summaryY - 12, by: 28.0) {
-                context.move(to: CGPoint(x: cueX + 12, y: y))
-                context.addLine(to: CGPoint(x: bounds.width - 24, y: y))
-            }
-            context.strokePath()
+        context.setLineWidth(0.65)
+        context.addPath(PaperTemplateGeometry.path(template, size: bounds.size))
+        if template == .dots { context.fillPath() } else { context.strokePath() }
+        for (label, point) in PaperTemplateGeometry.labels(template, size: bounds.size) {
+            (label as NSString).draw(at: point, withAttributes: [.font: UIFont.systemFont(ofSize: 10, weight: .medium), .foregroundColor: luminance < 0.48 ? UIColor.white.withAlphaComponent(0.55) : UIColor.secondaryLabel])
         }
         context.restoreGState()
     }
@@ -235,9 +231,9 @@ enum NotyExportService {
         context.restoreGState()
     }
 
-    private static func drawTextBox(_ box: NotyTextBox, canvasSize: CGSize, in context: CGContext) {
+    static func drawTextBox(_ box: NotyTextBox, canvasSize: CGSize, in context: CGContext) {
         let rect = CGRect(x: CGFloat(box.x), y: CGFloat(box.y), width: CGFloat(box.width), height: CGFloat(box.height))
-        let insetRect = rect.insetBy(dx: 9, dy: 8)
+        let insetRect = rect.insetBy(dx: 9 * box.contentInsetScale, dy: 8 * box.contentInsetScale)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping
         switch box.alignment {
@@ -246,7 +242,7 @@ enum NotyExportService {
         case .trailing: paragraph.alignment = .right
         }
 
-        let pointSize = max(6, CGFloat(box.fontSize))
+        let pointSize = max(1, CGFloat(box.fontSize))
         let baseFont = box.fontName.flatMap { UIFont(name: $0, size: pointSize) }
             ?? UIFont.systemFont(ofSize: pointSize)
         var traits = baseFont.fontDescriptor.symbolicTraits

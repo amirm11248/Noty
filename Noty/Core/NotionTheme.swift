@@ -3,42 +3,28 @@ import Foundation
 import SwiftUI
 import UIKit
 
-/// Single source of truth for Noty's Notion-inspired visual language.
-///
-/// Studied from Notion's actual product (not the marketing site):
-/// - App chrome is near-monochrome warm neutrals, color reserved for one blue action.
-/// - Light mode: sidebar `#F7F6F3`, page `#FFFFFF`, ink `#37352F`,
-///   secondary `#6F6E69`, hairline borders `rgba(55,53,47,0.09)`.
-/// - In-app accent blue is `#2383E2` (links, selection, primary action).
-/// - Cards are flat: 1px hairline border, 6-8pt radius, no shadows.
-///   Only popovers/menus float with a soft shadow.
-/// - Type is one sans family (Inter / system), small UI text (13-14pt),
-///   tight large titles, uppercase 11pt micro-labels with tracking.
-/// - Spacing runs on a 4pt base; rows are dense (28-32pt), pages breathe
-///   inside a ~900pt max width.
-/// - Dark mode: canvas `#191919`, sidebar `#202020`, ink near-white,
-///   borders `rgba(255,255,255,0.09)`.
+/// Shared adaptive colors and controls for the notebook workspace.
 enum NotionTheme {
     // MARK: - Surfaces
 
-    /// Warm paper behind the sidebar / page rails. Light `#F7F6F3`, dark `#202020`.
+    /// Neutral gray behind navigation and page rails.
     static let sidebar = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.125, green: 0.125, blue: 0.125, alpha: 1) // #202020
-            : UIColor(red: 0.968, green: 0.965, blue: 0.953, alpha: 1) // #F7F6F3
+            ? UIColor(white: 0.12, alpha: 1)
+            : UIColor(white: 0.965, alpha: 1)
     })
 
     /// Main page floor. Pure white in light mode, `#191919` in dark mode.
     static let canvas = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.098, green: 0.098, blue: 0.098, alpha: 1) // #191919
-            : .white
+            ? UIColor(white: 0.085, alpha: 1)
+            : UIColor(white: 0.99, alpha: 1)
     })
 
     /// Card / popover surface. White light, `#262626` dark.
     static let card = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.149, green: 0.149, blue: 0.149, alpha: 1)
+            ? UIColor(white: 0.16, alpha: 1)
             : .white
     })
 
@@ -60,7 +46,7 @@ enum NotionTheme {
     static let callout = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(white: 1, alpha: 0.05)
-            : UIColor(red: 0.968, green: 0.965, blue: 0.953, alpha: 1)
+            : UIColor(white: 0.955, alpha: 1)
     })
 
     // MARK: - Ink
@@ -68,22 +54,22 @@ enum NotionTheme {
     /// Primary text. Warm charcoal `#37352F` light, `#EDEDED` dark (never pure black-on-white harshness).
     static let ink = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.93, green: 0.93, blue: 0.93, alpha: 1)
-            : UIColor(red: 55 / 255, green: 53 / 255, blue: 47 / 255, alpha: 1)
+            ? UIColor(white: 0.94, alpha: 1)
+            : UIColor(white: 0.16, alpha: 1)
     })
 
     /// Secondary text `#6F6E69` light, gray dark.
     static let inkSecondary = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.62, green: 0.62, blue: 0.60, alpha: 1)
-            : UIColor(red: 111 / 255, green: 110 / 255, blue: 105 / 255, alpha: 1)
+            ? UIColor(white: 0.68, alpha: 1)
+            : UIColor(white: 0.45, alpha: 1)
     })
 
     /// Tertiary / placeholder text.
     static let inkTertiary = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.48, green: 0.48, blue: 0.47, alpha: 1)
-            : UIColor(red: 155 / 255, green: 155 / 255, blue: 150 / 255, alpha: 1)
+            ? UIColor(white: 0.57, alpha: 1)
+            : UIColor(white: 0.59, alpha: 1)
     })
 
     // MARK: - Lines & accent
@@ -102,9 +88,12 @@ enum NotionTheme {
             : UIColor(red: 55 / 255, green: 53 / 255, blue: 47 / 255, alpha: 0.16)
     })
 
-    /// The single chromatic commitment: Notion in-app blue `#2383E2`.
-    /// Reserved for primary actions, links, and selection rings.
-    static let accent = Color(red: 35 / 255, green: 131 / 255, blue: 226 / 255)
+    /// Restrained blue for actions and selections.
+    static let accent = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.45, green: 0.66, blue: 0.96, alpha: 1)
+            : UIColor(red: 0.20, green: 0.42, blue: 0.72, alpha: 1)
+    })
 
     static let accentPressed = Color(red: 0 / 255, green: 91 / 255, blue: 171 / 255)
 
@@ -115,7 +104,7 @@ enum NotionTheme {
     /// The writable page itself stays pure white like a Notion page.
     static let paper = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.149, green: 0.149, blue: 0.149, alpha: 1)
+            ? UIColor(white: 0.16, alpha: 1)
             : .white
     })
 
@@ -131,12 +120,12 @@ enum NotionTheme {
 
     // MARK: - Metrics
 
-    static let radiusSmall: CGFloat = 4
-    static let radiusMedium: CGFloat = 6
-    static let radiusCard: CGFloat = 8
+    static let radiusSmall: CGFloat = 8
+    static let radiusMedium: CGFloat = 12
+    static let radiusCard: CGFloat = 18
     static let borderWidth: CGFloat = 1
-    static let sidebarRowHeight: CGFloat = 32
-    static let pageMaxWidth: CGFloat = 900
+    static let sidebarRowHeight: CGFloat = 44
+    static let pageMaxWidth: CGFloat = 1180
 
     // MARK: - Typography
 
@@ -150,18 +139,10 @@ enum NotionTheme {
     /// Notion uses a tuned NotionInter build. Inter is the closest
     /// redistribution-safe match, so all chrome goes through one family.
     static func font(_ size: CGFloat, weight: TypefaceWeight = .regular) -> Font {
-        let postScriptName: String
-        switch weight {
-        case .regular:
-            postScriptName = "Inter-Regular"
-        case .medium:
-            postScriptName = "Inter-Medium"
-        case .semibold:
-            postScriptName = "Inter-SemiBold"
-        case .bold:
-            postScriptName = "Inter-Bold"
-        }
-        return .custom(postScriptName, size: size)
+        let systemWeight: Font.Weight
+        switch weight { case .regular: systemWeight = .regular; case .medium: systemWeight = .medium; case .semibold: systemWeight = .semibold; case .bold: systemWeight = .bold }
+        return .system(size: size, weight: systemWeight)
+
     }
 
     static let body = font(14)
@@ -222,7 +203,7 @@ struct NotionSidebarRowModifier: ViewModifier {
         content
             .frame(minHeight: NotionTheme.sidebarRowHeight)
             .background(
-                isSelected ? NotionTheme.rowHover : Color.clear,
+                isSelected ? NotionTheme.accent.opacity(0.14) : Color.clear,
                 in: RoundedRectangle(cornerRadius: NotionTheme.radiusMedium)
             )
             .contentShape(RoundedRectangle(cornerRadius: NotionTheme.radiusMedium))
@@ -263,7 +244,7 @@ struct NotionIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(NotionTheme.ink)
-            .frame(width: 30, height: 30)
+            .frame(width: 44, height: 44)
             .background(
                 configuration.isPressed ? NotionTheme.rowPressed : Color.clear,
                 in: RoundedRectangle(cornerRadius: NotionTheme.radiusMedium)
@@ -278,7 +259,7 @@ struct NotionToolbarButtonStyle: ButtonStyle {
         configuration.label
             .foregroundStyle(configuration.isPressed ? NotionTheme.accent : NotionTheme.ink)
             .padding(.horizontal, 7)
-            .frame(height: 30)
+            .frame(minHeight: 44)
             .background(
                 configuration.isPressed ? NotionTheme.rowHover : Color.clear,
                 in: RoundedRectangle(cornerRadius: NotionTheme.radiusMedium)
@@ -294,7 +275,7 @@ struct NotionPrimaryButtonStyle: ButtonStyle {
             .font(NotionTheme.control)
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
-            .frame(height: 30)
+            .frame(minHeight: 44)
             .background(
                 configuration.isPressed ? NotionTheme.accentPressed : NotionTheme.accent,
                 in: RoundedRectangle(cornerRadius: NotionTheme.radiusMedium)
@@ -353,7 +334,7 @@ struct NotionSearchField: View {
             }
         }
         .padding(.horizontal, 9)
-        .frame(height: 30)
+        .frame(minHeight: 44)
         .background(
             isFocused ? NotionTheme.rowPressed : NotionTheme.rowHover,
             in: RoundedRectangle(cornerRadius: NotionTheme.radiusMedium)

@@ -31,6 +31,13 @@ targets:
       path: Noty/Info.plist
       properties:
         CFBundleDisplayName: noty
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.malik.noty.page-selection
+            UTTypeDescription: Noty Selection
+            UTTypeConformsTo:
+              - public.data
         CFBundleDocumentTypes:
           - CFBundleTypeName: PDF and Word documents
             CFBundleTypeRole: Editor
@@ -47,6 +54,7 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         UIApplicationSupportsDocumentBrowser: false
+        NSMicrophoneUsageDescription: Noty uses the microphone only when you choose to record lecture audio in a notebook.
         NSCameraUsageDescription: Noty uses the camera only when you choose Scan Document to add paper pages to a notebook.
         UIBackgroundModes:
           - processing
@@ -68,3 +76,13 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Noty.app/Noty"
         BUNDLE_LOADER: "$(TEST_HOST)"
+
+schemes:
+  Noty:
+    build:
+      targets:
+        Noty: all
+        NotyTests: [test]
+    test:
+      targets:
+        - NotyTests

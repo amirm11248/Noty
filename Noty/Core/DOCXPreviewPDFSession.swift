@@ -45,6 +45,7 @@ final class DOCXPreviewPDFSession: NSObject, WKNavigationDelegate, WKScriptMessa
             webView.isOpaque = false
             webView.backgroundColor = .white
             webView.scrollView.backgroundColor = .white
+            webView.scrollView.contentInsetAdjustmentBehavior = .never
             self.webView = webView
             do {
                 try FileManager.default.createDirectory(at: workingDirectoryURL, withIntermediateDirectories: true)
@@ -52,7 +53,8 @@ final class DOCXPreviewPDFSession: NSObject, WKNavigationDelegate, WKScriptMessa
                 try Self.html.write(to: htmlURL, atomically: true, encoding: .utf8)
                 if let window = Self.activeWindow() {
                     hostWindow = window
-                    webView.frame = window.bounds
+                    // Rendering dimensions must fit a printed page even in Split View.
+                    webView.frame = CGRect(x: 0, y: 0, width: max(900, window.bounds.width), height: max(1_200, window.bounds.height))
                     webView.alpha = 1
                     webView.isUserInteractionEnabled = false
                     webView.accessibilityElementsHidden = true
@@ -145,7 +147,18 @@ final class DOCXPreviewPDFSession: NSObject, WKNavigationDelegate, WKScriptMessa
     }
 
     private static func createPaginatedPDF(from webView: WKWebView) async throws -> Data {
-        let pages = try await pageSlices(in: webView)
+        var pages = try await pageSlices(in: webView)
+        let width = max(webView.bounds.width, (pages.map { $0.width * $0.cssToViewScale }.max() ?? 0) + 4)
+        let height = max(webView.bounds.height, (pages.map { $0.height * $0.cssToViewScale }.max() ?? 0) + 4)
+        guard width <= 4_096, height <= 6_144 else {
+            throw NotyStoreError.invalidOfficeDocument("This Word page is too large for offline layout conversion. The original file has been kept.")
+        }
+        if width != webView.bounds.width || height != webView.bounds.height {
+            webView.frame.size = CGSize(width: width, height: height)
+            webView.layoutIfNeeded()
+            await Task.yield()
+            pages = try await pageSlices(in: webView)
+        }
         guard !pages.isEmpty else {
             throw NotyStoreError.invalidOfficeDocument("The Word document has no printable pages.")
         }
@@ -200,7 +213,21 @@ final class DOCXPreviewPDFSession: NSObject, WKNavigationDelegate, WKScriptMessa
                   let renderedPage = pagePDF.page(at: 0) else {
                 throw NotyStoreError.invalidOfficeDocument("A Word page could not be exported as PDF.")
             }
-            pdf.insert(renderedPage, at: pageIndex)
+            // Word CSS uses 96 pixels per inch; PDF paper uses 72 points per inch.
+            let paper = CGRect(x: 0, y: 0, width: page.width * 0.75, height: page.height * 0.75)
+            let renderer = UIGraphicsPDFRenderer(bounds: paper)
+            let normalized = renderer.pdfData { context in
+                context.beginPage()
+                let source = renderedPage.bounds(for: .mediaBox)
+                context.cgContext.translateBy(x: 0, y: paper.height)
+                context.cgContext.scaleBy(x: paper.width / source.width, y: -paper.height / source.height)
+                context.cgContext.translateBy(x: -source.minX, y: -source.minY)
+                renderedPage.draw(with: .mediaBox, to: context.cgContext)
+            }
+            guard let normalizedPage = PDFDocument(data: normalized)?.page(at: 0) else {
+                throw NotyStoreError.invalidOfficeDocument("The Word page could not be sized for printing.")
+            }
+            pdf.insert(normalizedPage, at: pageIndex)
         }
 
         guard pdf.pageCount == pages.count, let data = pdf.dataRepresentation() else {

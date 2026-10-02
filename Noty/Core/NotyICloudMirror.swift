@@ -183,7 +183,18 @@ private struct NotyMirrorSynchronizer {
             throw NotyStoreError.invalidMirrorSnapshot(error.localizedDescription)
         }
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let value = try decoder.singleValueContainer()
+            if let milliseconds = try? value.decode(Double.self) {
+                return Date(timeIntervalSince1970: milliseconds / 1_000)
+            }
+            let string = try value.decode(String.self)
+            let formatter = ISO8601DateFormatter()
+            if let date = formatter.date(from: string) { return date }
+            formatter.formatOptions.insert(.withFractionalSeconds)
+            if let date = formatter.date(from: string) { return date }
+            throw DecodingError.dataCorruptedError(in: value, debugDescription: "Invalid backup timestamp")
+        }
         let pointer: NotyMirrorCurrent
         do {
             pointer = try decoder.decode(NotyMirrorCurrent.self, from: data)
@@ -228,8 +239,15 @@ private struct NotyMirrorSynchronizer {
         let folderTombstones = newestByID(local.folderDeletions + remoteManifest.folderDeletions, date: \.deletedAt)
         let localFolders = Dictionary(uniqueKeysWithValues: local.folders.map { ($0.id, $0) })
         var mergedFolders = local.folders
-        for remoteFolder in remoteManifest.folders where localFolders[remoteFolder.id] == nil {
-            mergedFolders.append(remoteFolder)
+        for remoteFolder in remoteManifest.folders {
+            if let localFolder = localFolders[remoteFolder.id] {
+                if (remoteFolder.updatedAt ?? .distantPast) > (localFolder.updatedAt ?? .distantPast),
+                   let index = mergedFolders.firstIndex(where: { $0.id == remoteFolder.id }) {
+                    mergedFolders[index] = remoteFolder
+                }
+            } else {
+                mergedFolders.append(remoteFolder)
+            }
         }
         mergedFolders.removeAll { folderTombstones[$0.id] != nil }
         let validFolderIDs = Set(mergedFolders.map(\.id))
@@ -354,7 +372,7 @@ private struct NotyMirrorSynchronizer {
                 packages: references
             )
             let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
+            encoder.dateEncodingStrategy = .millisecondsSince1970
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let snapshotData = try encoder.encode(snapshot)
             try writeRemoteData(snapshotData, to: snapshotDirectory.appendingPathComponent("manifest.json"))
@@ -499,7 +517,7 @@ private struct NotyMirrorSynchronizer {
 
     private static func fingerprint(_ manifest: NotyStoreManifest) -> Data {
         let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = .millisecondsSince1970
         encoder.outputFormatting = [.sortedKeys]
         return (try? encoder.encode(manifest)) ?? Data()
     }

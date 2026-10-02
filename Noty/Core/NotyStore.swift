@@ -1,4 +1,6 @@
+import CryptoKit
 import Foundation
+import ImageIO
 import Observation
 import PDFKit
 import PencilKit
@@ -65,6 +67,9 @@ final class NotyStore {
     private(set) var lastPersistenceError: String?
     private(set) var lastOperationMessage: String?
     private(set) var trashItems: [NotyTrashedDocument] = []
+    private(set) var isIndexingHandwriting = false
+    private(set) var handwritingIndexError: String?
+    private(set) var searchIndexRevision: UInt64 = 0
 
     @ObservationIgnored let storageDirectoryURL: URL
     @ObservationIgnored let fileManager = FileManager.default
@@ -72,11 +77,14 @@ final class NotyStore {
     @ObservationIgnored var folderDeletionRecords: [NotyFolderDeletionRecord] = []
     @ObservationIgnored var localRevision: UInt64 = 0
     @ObservationIgnored var mirrorDebounceTask: Task<Void, Never>?
+    @ObservationIgnored private let imageCache = NSCache<NSString, UIImage>()
     @ObservationIgnored private var handwritingRecognitionJobs: [NotyHandwritingPageKey: NotyHandwritingRecognitionJob] = [:]
 
     var hasICloudMirror: Bool { iCloudMirrorFolderURL != nil }
 
     init(storageDirectoryURL: URL? = nil) {
+        imageCache.totalCostLimit = 40 * 1_024 * 1_024
+        imageCache.countLimit = 40
         if let storageDirectoryURL {
             self.storageDirectoryURL = storageDirectoryURL
         } else {
@@ -95,7 +103,7 @@ final class NotyStore {
         }
     }
 
-    func createFolder(name: String, parentID: UUID?) {
+    func createFolder(name: String, parentID: UUID?, design: NotyNotebookCover? = nil, symbol: String? = nil, imageData: Data? = nil) {
         guard let normalizedName = normalizedName(name) else {
             lastOperationMessage = NotyStoreError.invalidName.localizedDescription
             return
@@ -104,7 +112,7 @@ final class NotyStore {
             lastOperationMessage = NotyStoreError.folderNotFound.localizedDescription
             return
         }
-        folders.append(NotyFolder(name: normalizedName, parentID: parentID))
+        folders.append(NotyFolder(name: normalizedName, parentID: parentID, design: design, symbol: symbol, imageData: imageData, updatedAt: Self.storeTimestamp()))
         lastOperationMessage = nil
         persistCurrentManifest()
     }
@@ -118,8 +126,18 @@ final class NotyStore {
             lastOperationMessage = NotyStoreError.folderNotFound.localizedDescription
             return
         }
+        folders[index].updatedAt = Self.storeTimestamp()
         folders[index].name = normalizedName
         lastOperationMessage = nil
+        persistCurrentManifest()
+    }
+
+    func updateFolderDesign(id: UUID, design: NotyNotebookCover, symbol: String, imageData: Data? = nil) {
+        guard let index = folders.firstIndex(where: { $0.id == id }) else { return }
+        folders[index].updatedAt = Self.storeTimestamp()
+        folders[index].design = design
+        folders[index].symbol = symbol
+        folders[index].imageData = imageData
         persistCurrentManifest()
     }
 
@@ -127,6 +145,7 @@ final class NotyStore {
         guard let folder = folders.first(where: { $0.id == id }) else { return }
         for index in folders.indices where folders[index].parentID == id {
             folders[index].parentID = folder.parentID
+            folders[index].updatedAt = Self.storeTimestamp()
         }
         for index in documents.indices where documents[index].folderID == id {
             documents[index].folderID = folder.parentID
@@ -139,24 +158,106 @@ final class NotyStore {
     }
 
     @discardableResult
-    func createDocument(title: String, kind: NotyDocumentKind, folderID: UUID?) -> NotyDocument {
+    func createDocument(title: String, kind: NotyDocumentKind, folderID: UUID?, firstPage: NotyPage = NotyPage(), cover: NotyNotebookCover? = nil) -> NotyDocument {
         let normalizedTitle = normalizedName(title) ?? "Untitled"
         guard folderID == nil || folders.contains(where: { $0.id == folderID }) else {
             lastOperationMessage = NotyStoreError.folderNotFound.localizedDescription
             return NotyDocument(title: normalizedTitle, kind: kind, folderID: nil)
         }
 
-        // Notes and books are one notebook concept in the UI. Keep the legacy
-        // enum cases for on-disk compatibility, but new editable documents
-        // start from the same neutral blank paper.
-        let page = NotyPage(template: .blank)
+        let page = kind == .whiteboard ? NotyPage(template: .blank, customWidth: 4096, customHeight: 4096) : firstPage
+        let pages = cover != nil && kind != .pdf && kind != .whiteboard
+            ? [NotyPage(sizePreset: page.sizePreset, orientation: page.orientation, isCover: true), page]
+            : [page]
         let now = Self.storeTimestamp()
-        let document = NotyDocument(title: normalizedTitle, kind: kind, folderID: folderID, pages: [page], createdAt: now, updatedAt: now)
+        let document = NotyDocument(title: normalizedTitle, kind: kind, folderID: folderID, pages: pages, createdAt: now, updatedAt: now, cover: cover)
         documents.append(document)
         createDocumentAssetDirectory(document.id)
         lastOperationMessage = nil
         persistCurrentManifest()
         return document
+    }
+
+    /// Adds a cover to legacy notebooks without changing any writing-page IDs or assets.
+    func ensureNotebookCover(documentID: UUID) {
+        guard let index = documents.firstIndex(where: { $0.id == documentID }),
+              documents[index].kind != .pdf,
+              documents[index].kind != .whiteboard,
+              !documents[index].pages.contains(where: \.isCover) else { return }
+        let paper = documents[index].pages.first ?? NotyPage()
+        documents[index].pages.insert(NotyPage(sizePreset: paper.sizePreset, orientation: paper.orientation, isCover: true), at: 0)
+        touchDocument(at: index)
+        persistCurrentManifest()
+    }
+
+    func updateCover(documentID: UUID, cover: NotyNotebookCover, imageData: Data? = nil) throws {
+        guard let index = documents.firstIndex(where: { $0.id == documentID }) else { throw NotyStoreError.documentNotFound }
+        let previousName = documents[index].cover?.imageFileName
+        var updated = cover
+        if let imageData {
+            guard let source = CGImageSourceCreateWithData(imageData as CFData, nil), CGImageSourceGetCount(source) > 0 else { throw NotyStoreError.invalidImage }
+            let directory = assetDirectoryURL(documentID: documentID)
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            let ext = CGImageSourceGetType(source).flatMap { UTType($0 as String)?.preferredFilenameExtension } ?? "png"
+            let name = "cover-\(UUID().uuidString).\(ext)"
+            try imageData.write(to: directory.appendingPathComponent(name), options: .atomic)
+            updated.imageFileName = name
+        }
+        documents[index].cover = updated
+        touchDocument(at: index)
+        if persistCurrentManifest(), let previousName, previousName != updated.imageFileName,
+           URL(fileURLWithPath: previousName).lastPathComponent == previousName {
+            try? fileManager.removeItem(at: assetDirectoryURL(documentID: documentID).appendingPathComponent(previousName))
+        }
+    }
+
+    func coverImage(for document: NotyDocument, maximumPixelSize: Int = 2_048) -> UIImage? {
+        guard let name = document.cover?.imageFileName, URL(fileURLWithPath: name).lastPathComponent == name else { return nil }
+        return cachedImage(at: assetDirectoryURL(documentID: document.id).appendingPathComponent(name), maximumPixelSize: maximumPixelSize)
+    }
+
+    func audioURL(documentID: UUID, clip: NotyAudioClip) -> URL? {
+        guard URL(fileURLWithPath: clip.fileName).lastPathComponent == clip.fileName else { return nil }
+        let url = assetDirectoryURL(documentID: documentID).appendingPathComponent(clip.fileName)
+        return fileManager.fileExists(atPath: url.path) ? url : nil
+    }
+
+    func addAudioClip(documentID: UUID, clip: NotyAudioClip) {
+        guard let index = documents.firstIndex(where: { $0.id == documentID }) else { return }
+        documents[index].audioClips = (documents[index].audioClips ?? []) + [clip]
+        touchDocument(at: index)
+        persistCurrentManifest()
+    }
+
+    func deleteAudioClip(documentID: UUID, clipID: UUID) {
+        guard let index = documents.firstIndex(where: { $0.id == documentID }),
+              let clip = documents[index].audioClips?.first(where: { $0.id == clipID }) else { return }
+        documents[index].audioClips?.removeAll { $0.id == clipID }
+        touchDocument(at: index)
+        if persistCurrentManifest(), let url = audioURL(documentID: documentID, clip: clip) { try? fileManager.removeItem(at: url) }
+    }
+
+    func updateStudyCards(documentID: UUID, cards: [NotyStudyCard]) {
+        guard let index = documents.firstIndex(where: { $0.id == documentID }) else { return }
+        documents[index].studyCards = cards
+        touchDocument(at: index)
+        persistCurrentManifest()
+    }
+
+    @discardableResult
+    func duplicateDocument(id: UUID) throws -> NotyDocument {
+        guard let original = documents.first(where: { $0.id == id }) else { throw NotyStoreError.documentNotFound }
+        var copy = original
+        copy.id = UUID()
+        copy.title += " copy"
+        copy.createdAt = Self.storeTimestamp()
+        copy.updatedAt = copy.createdAt
+        let source = assetDirectoryURL(documentID: id)
+        let target = assetDirectoryURL(documentID: copy.id)
+        if fileManager.fileExists(atPath: source.path) { try fileManager.copyItem(at: source, to: target) }
+        documents.append(copy)
+        persistCurrentManifest()
+        return copy
     }
 
     func renameDocument(id: UUID, title: String) {
@@ -296,29 +397,35 @@ final class NotyStore {
         }
     }
 
-    func addPage(documentID: UUID, after pageID: UUID?, template: NotyPageTemplate) {
+    @discardableResult
+    func addPage(documentID: UUID, after pageID: UUID?, template: NotyPageTemplate, format: NotyPage? = nil) -> NotyPage? {
         guard let documentIndex = documents.firstIndex(where: { $0.id == documentID }) else {
             lastOperationMessage = NotyStoreError.documentNotFound.localizedDescription
-            return
+            return nil
         }
         let page: NotyPage
         if let pageID, let pageIndex = documents[documentIndex].pages.firstIndex(where: { $0.id == pageID }) {
-            let reference = documents[documentIndex].pages[pageIndex]
+            let current = documents[documentIndex].pages[pageIndex]
+            let reference = current.isCover ? (documents[documentIndex].pages.first(where: { !$0.isCover }) ?? current) : current
+            let appearance = format ?? reference
             page = NotyPage(
                 template: template,
-                paperColorHex: reference.paperColorHex,
-                sizePreset: reference.sizePreset,
-                orientation: reference.orientation
+                paperColorHex: format?.paperColorHex ?? reference.paperColorHex,
+                sizePreset: format?.sizePreset ?? reference.sizePreset,
+                orientation: format?.orientation ?? reference.orientation,
+                customWidth: appearance.customWidth,
+                customHeight: appearance.customHeight
             )
             documents[documentIndex].pages.insert(page, at: pageIndex + 1)
         } else {
-            page = NotyPage(template: template)
+            page = NotyPage(template: template, paperColorHex: format?.paperColorHex ?? "FFFFFF", sizePreset: format?.sizePreset ?? .letter, orientation: format?.orientation ?? .portrait, customWidth: format?.customWidth, customHeight: format?.customHeight)
             documents[documentIndex].pages.append(page)
         }
         touchDocument(at: documentIndex)
         createDrawingDirectory(documentID: documentID)
         lastOperationMessage = nil
         persistCurrentManifest()
+        return page
     }
 
     func movePage(documentID: UUID, from source: IndexSet, to destination: Int) {
@@ -327,14 +434,15 @@ final class NotyStore {
             return
         }
         var pages = documents[documentIndex].pages
-        let validOffsets = source.filter { pages.indices.contains($0) }.sorted()
+        let validOffsets = source.filter { pages.indices.contains($0) && !pages[$0].isCover }.sorted()
         guard !validOffsets.isEmpty else { return }
 
         let movingPages = validOffsets.map { pages[$0] }
         for index in validOffsets.reversed() {
             pages.remove(at: index)
         }
-        let adjustedDestination = max(0, min(destination - validOffsets.filter { $0 < destination }.count, pages.count))
+        let minimum = pages.first?.isCover == true ? 1 : 0
+        let adjustedDestination = max(minimum, min(destination - validOffsets.filter { $0 < destination }.count, pages.count))
         pages.insert(contentsOf: movingPages, at: adjustedDestination)
         documents[documentIndex].pages = pages
         touchDocument(at: documentIndex)
@@ -350,12 +458,14 @@ final class NotyStore {
             lastOperationMessage = NotyStoreError.pageNotFound.localizedDescription
             return
         }
+        guard !documents[documentIndex].pages[pageIndex].isCover else { return }
         documents[documentIndex].pages.remove(at: pageIndex)
         touchDocument(at: documentIndex)
         lastOperationMessage = nil
         if persistCurrentManifest() {
             try? fileManager.removeItem(at: drawingURL(documentID: documentID, pageID: pageID))
             try? fileManager.removeItem(at: handwritingTextURL(documentID: documentID, pageID: pageID))
+            try? fileManager.removeItem(at: handwritingDigestURL(documentID: documentID, pageID: pageID))
             try? fileManager.removeItem(at: pageImagesDirectoryURL(documentID: documentID, pageID: pageID))
         }
     }
@@ -369,6 +479,7 @@ final class NotyStore {
         }
 
         let sourcePage = documents[documentIndex].pages[pageIndex]
+        guard !sourcePage.isCover else { return nil }
         let duplicatedPage = NotyPage(
             id: UUID(),
             template: sourcePage.template,
@@ -387,7 +498,9 @@ final class NotyStore {
             bookmarkTitle: nil,
             paperColorHex: sourcePage.paperColorHex,
             sizePreset: sourcePage.sizePreset,
-            orientation: sourcePage.orientation
+            orientation: sourcePage.orientation,
+            customWidth: sourcePage.customWidth,
+            customHeight: sourcePage.customHeight
         )
         let copiedDrawingURL = drawingURL(documentID: documentID, pageID: duplicatedPage.id)
         let copiedHandwritingURL = handwritingTextURL(documentID: documentID, pageID: duplicatedPage.id)
@@ -455,8 +568,13 @@ final class NotyStore {
         var newPage = oldPage
         if let template { newPage.template = template }
         if let paperColorHex { newPage.paperColorHex = Self.normalizedPaperColor(paperColorHex) }
-        if let sizePreset { newPage.sizePreset = sizePreset }
-        if let orientation { newPage.orientation = orientation }
+        if let sizePreset { newPage.sizePreset = sizePreset; newPage.customWidth = nil; newPage.customHeight = nil }
+        if let orientation {
+            if let width = newPage.customWidth, let height = newPage.customHeight, orientation != newPage.orientation {
+                newPage.customWidth = height; newPage.customHeight = width
+            }
+            newPage.orientation = orientation
+        }
 
         let oldSize = oldPage.canvasSize
         let newSize = newPage.canvasSize
@@ -510,6 +628,61 @@ final class NotyStore {
         persistCurrentManifest()
     }
 
+    /// Grow the board without rescaling ink, text or photos. Left/top growth translates
+    /// all content together so the viewport can remain over the same world position.
+    @discardableResult
+    func expandWhiteboard(documentID: UUID, pageID: UUID, expansion: NotyCanvasExpansion) -> Bool {
+        guard expansion.isValid,
+              let documentIndex = documents.firstIndex(where: { $0.id == documentID && $0.kind == .whiteboard }),
+              let pageIndex = documents[documentIndex].pages.firstIndex(where: { $0.id == pageID }) else { return false }
+        let previous = documents[documentIndex]
+        var page = previous.pages[pageIndex]
+        let oldSize = page.canvasSize
+        let newSize = expansion.expanding(oldSize)
+        guard newSize.width.isFinite, newSize.height.isFinite else { return false }
+        let original = drawing(documentID: documentID, pageID: pageID)
+        let translated = original.transformed(using: expansion.translation)
+        let inkURL = drawingURL(documentID: documentID, pageID: pageID)
+        let oldData = try? Data(contentsOf: inkURL)
+        do {
+            if !original.strokes.isEmpty {
+                try fileManager.createDirectory(at: inkURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try translated.dataRepresentation().write(to: inkURL, options: .atomic)
+            }
+            page.customWidth = Double(newSize.width); page.customHeight = Double(newSize.height)
+            page.canvasOffsetX = (page.canvasOffsetX ?? 0) + Double(expansion.left)
+            page.canvasOffsetY = (page.canvasOffsetY ?? 0) + Double(expansion.top)
+            page.viewportCenterX = (page.viewportCenterX ?? Double(oldSize.width / 2)) + Double(expansion.left)
+            page.viewportCenterY = (page.viewportCenterY ?? Double(oldSize.height / 2)) + Double(expansion.top)
+            page.textBoxes = page.textBoxes.map { var box = $0; box.x += Double(expansion.left); box.y += Double(expansion.top); return box }
+            page.images = page.images.map { var image = $0; image.x += Double(expansion.left); image.y += Double(expansion.top); return image }
+            documents[documentIndex].pages[pageIndex] = page
+            touchDocument(at: documentIndex)
+            guard persistCurrentManifest() else {
+                documents[documentIndex] = previous
+                if let oldData { try? oldData.write(to: inkURL, options: .atomic) }
+                return false
+            }
+            if !original.strokes.isEmpty {
+                try? fileManager.removeItem(at: handwritingDigestURL(documentID: documentID, pageID: pageID))
+                scheduleHandwritingRecognition(drawingData: translated.dataRepresentation(), documentID: documentID, pageID: pageID)
+            }
+            return true
+        } catch {
+            lastOperationMessage = "The whiteboard could not be expanded: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func updateWhiteboardViewport(documentID: UUID, pageID: UUID, center: CGPoint) {
+        guard center.x.isFinite, center.y.isFinite,
+              let index = documents.firstIndex(where: { $0.id == documentID && $0.kind == .whiteboard }),
+              let pageIndex = documents[index].pages.firstIndex(where: { $0.id == pageID }) else { return }
+        documents[index].pages[pageIndex].viewportCenterX = Double(center.x)
+        documents[index].pages[pageIndex].viewportCenterY = Double(center.y)
+        persistCurrentManifest()
+    }
+
     func updateTextBoxes(documentID: UUID, pageID: UUID, textBoxes: [NotyTextBox]) {
         guard let documentIndex = documents.firstIndex(where: { $0.id == documentID }) else {
             lastOperationMessage = NotyStoreError.documentNotFound.localizedDescription
@@ -525,13 +698,14 @@ final class NotyStore {
         persistCurrentManifest()
     }
 
-    func updatePageBookmark(documentID: UUID, pageID: UUID, isBookmarked: Bool) {
+    func updatePageBookmark(documentID: UUID, pageID: UUID, isBookmarked: Bool, title: String? = nil) {
         guard let documentIndex = documents.firstIndex(where: { $0.id == documentID }),
               let pageIndex = documents[documentIndex].pages.firstIndex(where: { $0.id == pageID }) else {
             lastOperationMessage = NotyStoreError.pageNotFound.localizedDescription
             return
         }
         documents[documentIndex].pages[pageIndex].isBookmarked = isBookmarked
+        if let title { documents[documentIndex].pages[pageIndex].bookmarkTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : title.trimmingCharacters(in: .whitespacesAndNewlines) }
         touchDocument(at: documentIndex)
         lastOperationMessage = nil
         persistCurrentManifest()
@@ -543,24 +717,14 @@ final class NotyStore {
               let pageIndex = documents[documentIndex].pages.firstIndex(where: { $0.id == pageID }) else {
             throw NotyStoreError.pageNotFound
         }
-        guard let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 else {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 1_024] as CFDictionary) else {
             throw NotyStoreError.invalidImage
         }
-
-        let normalizedData: Data
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = false
-        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
-        let normalizedImage = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: image.size))
-        }
-        guard let pngData = normalizedImage.pngData() else {
-            throw NotyStoreError.invalidImage
-        }
-        normalizedData = pngData
-
-        let fileName = "\(UUID().uuidString).png"
+        let image = UIImage(cgImage: thumbnail)
+        let normalizedData = data
+        let ext = CGImageSourceGetType(source).flatMap { UTType($0 as String)?.preferredFilenameExtension } ?? "png"
+        let fileName = "\(UUID().uuidString).\(ext)"
         let directory = pageImagesDirectoryURL(documentID: documentID, pageID: pageID)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let fileURL = directory.appendingPathComponent(fileName)
@@ -576,10 +740,13 @@ final class NotyStore {
             width = height * aspect
         }
         let canvasSize = documents[documentIndex].pages[pageIndex].canvasSize
+        let page = documents[documentIndex].pages[pageIndex]
+        let centerX = documents[documentIndex].kind == .whiteboard ? (page.viewportCenterX ?? Double(canvasSize.width / 2)) : Double(canvasSize.width / 2)
+        let centerY = documents[documentIndex].kind == .whiteboard ? (page.viewportCenterY ?? Double(canvasSize.height / 2)) : Double(canvasSize.height / 2)
         let pageImage = NotyPageImage(
             fileName: fileName,
-            x: max(24, (Double(canvasSize.width) - width) / 2),
-            y: max(24, (Double(canvasSize.height) - height) / 2),
+            x: max(24, centerX - width / 2),
+            y: max(24, centerY - height / 2),
             width: min(width, max(60, Double(canvasSize.width) - 48)),
             height: min(height, max(60, Double(canvasSize.height) - 48))
         )
@@ -595,7 +762,7 @@ final class NotyStore {
         return pageImage
     }
 
-    func updatePageImages(documentID: UUID, pageID: UUID, images: [NotyPageImage]) {
+    func updatePageImages(documentID: UUID, pageID: UUID, images: [NotyPageImage], retainAssetsForUndo: Bool = false) {
         guard let documentIndex = documents.firstIndex(where: { $0.id == documentID }),
               let pageIndex = documents[documentIndex].pages.firstIndex(where: { $0.id == pageID }) else {
             lastOperationMessage = NotyStoreError.pageNotFound.localizedDescription
@@ -605,7 +772,7 @@ final class NotyStore {
         documents[documentIndex].pages[pageIndex].images = images
         touchDocument(at: documentIndex)
         lastOperationMessage = nil
-        if persistCurrentManifest() {
+        if persistCurrentManifest(), !retainAssetsForUndo {
             let retainedNames = Set(images.map(\.fileName))
             for removed in previousImages where !retainedNames.contains(removed.fileName) {
                 try? fileManager.removeItem(
@@ -616,9 +783,41 @@ final class NotyStore {
         }
     }
 
-    func pageImage(documentID: UUID, pageID: UUID, image: NotyPageImage) -> UIImage? {
-        UIImage(contentsOfFile: pageImagesDirectoryURL(documentID: documentID, pageID: pageID)
-            .appendingPathComponent(image.fileName).path)
+    func removeUnusedPhotoAssets(documentID: UUID) {
+        guard let document = documents.first(where: { $0.id == documentID }) else { return }
+        for page in document.pages {
+            let directory = pageImagesDirectoryURL(documentID: documentID, pageID: page.id)
+            let retained = Set(page.images.map(\.fileName))
+            let files = (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+            for file in files where !retained.contains(file.lastPathComponent) {
+                try? fileManager.removeItem(at: file)
+            }
+        }
+    }
+
+    func pageImage(documentID: UUID, pageID: UUID, image: NotyPageImage, maximumPixelSize: Int = 2_048) -> UIImage? {
+        guard URL(fileURLWithPath: image.fileName).lastPathComponent == image.fileName else { return nil }
+        let url = pageImagesDirectoryURL(documentID: documentID, pageID: pageID).appendingPathComponent(image.fileName)
+        let crop = CGRect(x: image.cropX ?? 0, y: image.cropY ?? 0, width: image.cropWidth ?? 1, height: image.cropHeight ?? 1)
+        return cachedImage(at: url, maximumPixelSize: maximumPixelSize, crop: crop)
+    }
+
+    private func cachedImage(at url: URL, maximumPixelSize: Int, crop: CGRect? = nil) -> UIImage? {
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        let key = "\(url.path)|\(maximumPixelSize)|\(crop.map { String(describing: $0) } ?? "full")" as NSString
+        if let image = imageCache.object(forKey: key) { return image }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceShouldCacheImmediately: true, kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize] as CFDictionary) else { return nil }
+        var image = UIImage(cgImage: cgImage)
+        if let crop { image = image.notyCropped(x: crop.minX, y: crop.minY, width: crop.width, height: crop.height) }
+        imageCache.setObject(image, forKey: key, cost: (image.cgImage?.bytesPerRow ?? 0) * (image.cgImage?.height ?? 0))
+        return image
+    }
+
+    /// Upright, uncropped image for the crop editor; original file bytes stay untouched.
+    func originalPageImage(documentID: UUID, pageID: UUID, image: NotyPageImage) -> UIImage? {
+        guard URL(fileURLWithPath: image.fileName).lastPathComponent == image.fileName else { return nil }
+        return cachedImage(at: pageImagesDirectoryURL(documentID: documentID, pageID: pageID).appendingPathComponent(image.fileName), maximumPixelSize: 4_096)
     }
 
     func saveDrawing(_ drawing: PKDrawing, documentID: UUID, pageID: UUID) {
@@ -631,7 +830,14 @@ final class NotyStore {
             let destination = drawingURL(documentID: documentID, pageID: pageID)
             try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
             let drawingData = drawing.dataRepresentation()
+            if let saved = try? Data(contentsOf: destination) {
+                if saved == drawingData || (drawing.strokes.isEmpty && (try? PKDrawing(data: saved).strokes.isEmpty) == true) { return }
+            } else if drawing.strokes.isEmpty { return }
             try drawingData.write(to: destination, options: .atomic)
+            // An edited or erased word must stop matching the previous OCR immediately.
+            try? fileManager.removeItem(at: handwritingTextURL(documentID: documentID, pageID: pageID))
+            try? fileManager.removeItem(at: handwritingDigestURL(documentID: documentID, pageID: pageID))
+            searchIndexRevision &+= 1
             touchDocument(at: documentIndex)
             lastOperationMessage = nil
             if persistCurrentManifest() {
@@ -652,7 +858,28 @@ final class NotyStore {
     }
 
     func recognizedHandwriting(documentID: UUID, pageID: UUID) -> String {
-        (try? String(contentsOf: handwritingTextURL(documentID: documentID, pageID: pageID), encoding: .utf8)) ?? ""
+        let digestURL = handwritingDigestURL(documentID: documentID, pageID: pageID)
+        if let indexedDigest = try? String(contentsOf: digestURL, encoding: .utf8) {
+            guard let data = try? Data(contentsOf: drawingURL(documentID: documentID, pageID: pageID)),
+                  indexedDigest == Self.handwritingDigest(data) else { return "" }
+        }
+        return (try? String(contentsOf: handwritingTextURL(documentID: documentID, pageID: pageID), encoding: .utf8)) ?? ""
+    }
+
+    /// Reconciles old notes and interrupted OCR jobs, including notes restored through sync.
+    func ensureHandwritingSearchIndex(documentID: UUID? = nil) {
+        handwritingIndexError = nil
+        for document in documents where documentID == nil || document.id == documentID {
+            for page in document.pages {
+                let key = NotyHandwritingPageKey(documentID: document.id, pageID: page.id)
+                guard handwritingRecognitionJobs[key] == nil,
+                      let data = try? Data(contentsOf: drawingURL(documentID: document.id, pageID: page.id)) else { continue }
+                let digestURL = handwritingDigestURL(documentID: document.id, pageID: page.id)
+                let digest = try? String(contentsOf: digestURL, encoding: .utf8)
+                if digest == Self.handwritingDigest(data), fileManager.fileExists(atPath: handwritingTextURL(documentID: document.id, pageID: page.id).path) { continue }
+                scheduleHandwritingRecognition(drawingData: data, documentID: document.id, pageID: page.id)
+            }
+        }
     }
 
     func search(query: String) -> [NotySearchResult] {
@@ -725,6 +952,19 @@ final class NotyStore {
             .first(where: { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true })
     }
 
+    private static func importedPages(from pdf: PDFDocument) -> [NotyPage] {
+        (0..<pdf.pageCount).map { index in
+            guard let source = pdf.page(at: index) else { return NotyPage(sourcePageIndex: index) }
+            let size = source.bounds(for: .mediaBox).applying(source.transform(for: .mediaBox)).standardized.size
+            let orientation: NotyPageOrientation = size.width > size.height ? .landscape : .portrait
+            let portrait = CGSize(width: min(size.width, size.height), height: max(size.width, size.height))
+            let preset = NotyPageSizePreset.allCases.min {
+                hypot($0.portraitSize.width - portrait.width, $0.portraitSize.height - portrait.height) < hypot($1.portraitSize.width - portrait.width, $1.portraitSize.height - portrait.height)
+            } ?? .letter
+            return NotyPage(sourcePageIndex: index, sizePreset: preset, orientation: orientation, customWidth: size.width, customHeight: size.height)
+        }
+    }
+
     func importDocument(from url: URL, folderID: UUID?, converter: OfficeConverting? = nil) async throws -> NotyDocument {
         guard folderID == nil || folders.contains(where: { $0.id == folderID }) else {
             throw NotyStoreError.folderNotFound
@@ -759,7 +999,7 @@ final class NotyStore {
                 guard let pdf = PDFDocument(url: stagedPDFURL), pdf.pageCount > 0 else {
                     throw NotyStoreError.invalidPDF
                 }
-                pages = (0..<pdf.pageCount).map { NotyPage(template: .blank, sourcePageIndex: $0) }
+                pages = Self.importedPages(from: pdf)
             } else {
                 do {
                     if fileExtension == "docx" {
@@ -785,7 +1025,7 @@ final class NotyStore {
                             "The Word file did not produce a readable PDF. The original Word file has been kept."
                         )
                     }
-                    pages = (0..<pdf.pageCount).map { NotyPage(template: .blank, sourcePageIndex: $0) }
+                    pages = Self.importedPages(from: pdf)
                     if importMessage == nil {
                         importMessage = "Converted \(originalName) on this iPad. The original Word file is retained alongside the PDF."
                     }
@@ -797,7 +1037,7 @@ final class NotyStore {
                             guard let pdf = PDFDocument(url: stagedPDFURL), pdf.pageCount > 0 else {
                                 throw NotyStoreError.invalidPDF
                             }
-                            pages = (0..<pdf.pageCount).map { NotyPage(template: .blank, sourcePageIndex: $0) }
+                            pages = Self.importedPages(from: pdf)
                             importMessage = "Converted \(originalName). The original Word file is retained alongside the PDF."
                         } catch let conversionError {
                             kind = .note
@@ -978,6 +1218,14 @@ final class NotyStore {
             .appendingPathComponent("\(pageID.uuidString).txt")
     }
 
+    private func handwritingDigestURL(documentID: UUID, pageID: UUID) -> URL {
+        handwritingTextURL(documentID: documentID, pageID: pageID).appendingPathExtension("sha256")
+    }
+
+    private static func handwritingDigest(_ data: Data) -> String {
+        "ocr-2:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
     func pageImagesDirectoryURL(documentID: UUID, pageID: UUID) -> URL {
         assetDirectoryURL(documentID: documentID)
             .appendingPathComponent("Images", isDirectory: true)
@@ -1124,9 +1372,9 @@ final class NotyStore {
                 self?.clearHandwritingRecognitionJob(key, matching: jobID)
                 return
             }
-            let recognition = await Task.detached(priority: .utility) {
-                Result { try NotyHandwritingRecognizer.recognize(drawingData: drawingData) }
-            }.value
+            let recognition: Result<String, Error>
+            do { recognition = .success(try await NotyHandwritingRecognitionWorker.shared.recognize(drawingData: drawingData)) }
+            catch { recognition = .failure(error) }
             guard let self else { return }
             guard !Task.isCancelled else {
                 self.clearHandwritingRecognitionJob(key, matching: jobID)
@@ -1144,10 +1392,12 @@ final class NotyStore {
                 )
             case .failure(let error):
                 self.clearHandwritingRecognitionJob(key, matching: jobID)
+                self.handwritingIndexError = "Some handwriting could not be indexed. Try again."
                 NSLog("Noty handwriting recognition failed: %@", error.localizedDescription)
             }
         }
         handwritingRecognitionJobs[key] = NotyHandwritingRecognitionJob(id: jobID, task: task)
+        isIndexingHandwriting = true
     }
 
     private func finishHandwritingRecognition(
@@ -1159,7 +1409,7 @@ final class NotyStore {
         jobID: UUID
     ) {
         guard handwritingRecognitionJobs[key]?.id == jobID else { return }
-        handwritingRecognitionJobs[key] = nil
+        clearHandwritingRecognitionJob(key, matching: jobID)
         guard let documentIndex = documents.firstIndex(where: { $0.id == documentID }),
               documents[documentIndex].pages.contains(where: { $0.id == pageID }),
               let savedDrawingData = try? Data(contentsOf: drawingURL(documentID: documentID, pageID: pageID)),
@@ -1170,20 +1420,15 @@ final class NotyStore {
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let sidecarURL = handwritingTextURL(documentID: documentID, pageID: pageID)
         let previousSidecarData = try? Data(contentsOf: sidecarURL)
-        let previousText = previousSidecarData.flatMap { String(data: $0, encoding: .utf8) }
-        guard previousText != normalizedText else { return }
+        let digestURL = handwritingDigestURL(documentID: documentID, pageID: pageID)
+        let previousDigestData = try? Data(contentsOf: digestURL)
 
         do {
-            if normalizedText.isEmpty {
-                if fileManager.fileExists(atPath: sidecarURL.path) {
-                    try fileManager.removeItem(at: sidecarURL)
-                } else {
-                    return
-                }
-            } else {
-                try fileManager.createDirectory(at: sidecarURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try Data(normalizedText.utf8).write(to: sidecarURL, options: .atomic)
-            }
+            try fileManager.createDirectory(at: sidecarURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // Persist empty results too, so drawings without words aren't re-indexed every launch.
+            try Data(normalizedText.utf8).write(to: sidecarURL, options: .atomic)
+            try Data(Self.handwritingDigest(drawingData).utf8).write(to: digestURL, options: .atomic)
+            searchIndexRevision &+= 1
 
             let previousDocument = documents[documentIndex]
             touchDocument(at: documentIndex)
@@ -1194,8 +1439,11 @@ final class NotyStore {
                 } else {
                     try? fileManager.removeItem(at: sidecarURL)
                 }
+                if let previousDigestData { try? previousDigestData.write(to: digestURL, options: .atomic) }
+                else { try? fileManager.removeItem(at: digestURL) }
             }
         } catch {
+            handwritingIndexError = "Some handwriting could not be indexed. Try again."
             NSLog("Noty handwriting OCR sidecar could not be saved: %@", error.localizedDescription)
         }
     }
@@ -1203,6 +1451,7 @@ final class NotyStore {
     private func clearHandwritingRecognitionJob(_ key: NotyHandwritingPageKey, matching jobID: UUID) {
         guard handwritingRecognitionJobs[key]?.id == jobID else { return }
         handwritingRecognitionJobs[key] = nil
+        isIndexingHandwriting = !handwritingRecognitionJobs.isEmpty
     }
 
     private static func containsEverySearchToken(_ tokens: [String], in text: String) -> Bool {
@@ -1344,7 +1593,7 @@ final class NotyStore {
     }
 
     private static func officeFallbackMessage(fileName: String, error: Error) -> String {
-        "The original Word document “\(fileName)” is saved with this note. Noty could not convert it on this iPad. Export it as PDF from Word or Pages and import that PDF to preserve the original page layout. Details: \(error.localizedDescription)"
+        "The original Word document “\(fileName)” is saved with this note. Noty could not convert it on this iPad. Export it as PDF from Word or Pages and import that PDF to preserve the original page layout."
     }
 
     private static func syncTimeString(_ date: Date) -> String {

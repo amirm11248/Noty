@@ -7,27 +7,49 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		E0B1C2D3E4F5061728394A5B /* FontInter in Frameworks */ = {isa = PBXBuildFile; productRef = C0B1C2D3E4F5061728394A5B /* FontInter */; };
+		01B6A65B29254602CC84DC93 /* NotebookSearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B3EBA48004EE6C0A004600 /* NotebookSearchSheet.swift */; };
+		06C7C3C9E8DB8406B497CAE0 /* StudyToolsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100386A9AC4A3A09F78C4BB /* StudyToolsSheet.swift */; };
+		0BB3E0BFA3A63A8BA1598523 /* NotyPageObjectHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86B61E222C3D86725AA9AEA8 /* NotyPageObjectHistory.swift */; };
+		0D50B87103433CFBC8331752 /* NotyWritingAndSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9727035AE42D829D0F925BD /* NotyWritingAndSearchTests.swift */; };
+		0EAF718E9801B31C083508FB /* NotyPrivacyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F71BBE213CDCFAA698855C0 /* NotyPrivacyView.swift */; };
+		1E4BE80D86EA88B9C2FE95D4 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 48A39263807978B82E048A57 /* PrivacyInfo.xcprivacy */; };
+		1EDB479D982CE19DB04B3701 /* NotySelectionClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = C184F65BC4BC963D05B45F33 /* NotySelectionClipboard.swift */; };
 		2140B165EF8C2B6D6562EAF0 /* NotionTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36C6DD6C3F9FBA311AEE052E /* NotionTheme.swift */; };
 		2AAB49EECF23123C2FB3B089 /* noty-qa.docx in Resources */ = {isa = PBXBuildFile; fileRef = 32A4025F6E9EA4ABE842EA71 /* noty-qa.docx */; };
+		305FAD0FA251A31C2C1151CB /* FolderDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9716CE88DB931DAEA4162C71 /* FolderDesign.swift */; };
 		3E5074AFF66E8E9A30923F0E /* JSZip-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = FEA69734FB84D67F4028A898 /* JSZip-LICENSE.txt */; };
+		3EEC77EA4E24F8ECADAA0225 /* FrostedWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8D86537595C0B304EC022B6 /* FrostedWorkspace.swift */; };
 		448E1A386C0A9705EAF080D0 /* NotySearchResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24C943A28641E867826EC623 /* NotySearchResult.swift */; };
 		4E4D10125BBD21342906B145 /* Pako-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 739E132FB3DBD3D1CB7BBA25 /* Pako-LICENSE.txt */; };
+		60C14A98249EDFBB788F6093 /* FloatingNotebookToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9B3BEEF01C76D17923D81E2 /* FloatingNotebookToolbar.swift */; };
+		6C0DA84DF3938933E2182B3E /* NotyShapeRecognition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B80282B1167795D10773331 /* NotyShapeRecognition.swift */; };
 		6FB5AC45861AC7BE876612E5 /* OneDriveService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 866569FCBE48B110B6C30B23 /* OneDriveService.swift */; };
 		7E9B4E3A8A79421C21723022 /* NotyICloudMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC26C0D0B3DBA7028231217C /* NotyICloudMirror.swift */; };
+		8304E81A3C5F82D31BB2CCF0 /* NotyCanvasAndExportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61651C7B796C194055FED3E9 /* NotyCanvasAndExportTests.swift */; };
 		9810B98F0C8F5EB4486256AD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 608AF6FE63DD79F9768B5A50 /* Assets.xcassets */; };
 		9930B1CB55144B45D3C8B63C /* LocalOfficeConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F70EB43B7C4BABEA8006D96C /* LocalOfficeConverter.swift */; };
 		9BE4484AB8555183688E6DCC /* jszip.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 822689D035363EF9F37897FE /* jszip.min.js */; };
+		9C44EB3C29DE04235A0E60FA /* InfiniteCanvasViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E7E0C8552D1E9EBF70123AB /* InfiniteCanvasViewport.swift */; };
+		A0739D017F557F3B271BDCC7 /* PageLassoOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87D075A76EB79F263049AEA /* PageLassoOverlay.swift */; };
+		A1B6D50C89C5E8661B730E5B /* NotyDrawingRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9ACE9D9FF4E43F76596055B /* NotyDrawingRendering.swift */; };
 		A364A682D797B3EE63C57171 /* DOCXPreviewPDFSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4C53C177452A0B06986BCB8 /* DOCXPreviewPDFSession.swift */; };
+		AA072361C3E4E6A87C92BACB /* NotebookDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = F24D18C8F8FB90690DD6F8D1 /* NotebookDesign.swift */; };
 		B322E694D848E74F6673F447 /* DocumentEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2ABBD8275681D1E0E54A854 /* DocumentEditorView.swift */; };
+		BC1D78B3AE217D4BA0D06AB5 /* DeleteNotyAccountSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A58A4F2A05D90ADBC06BCAF /* DeleteNotyAccountSheet.swift */; };
+		C3AD4E6A8807D92E8E0EB215 /* ImageCropSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C62A3921B744B56F0728ADF4 /* ImageCropSheet.swift */; };
 		C3F04E649A1E0CD2C024D55E /* NotyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1B2702B617E0CDE032E7D7F /* NotyApp.swift */; };
+		C96386140E05D2342A7FD997 /* NotyPageSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D7538C22A194007E232BCA0 /* NotyPageSelection.swift */; };
 		D3EED013981A738D71974166 /* NotyOneDriveMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E5B7E463A3201DA5DEBB0F /* NotyOneDriveMirrorTests.swift */; };
+		D40A63E80FEB89C7BAAEC7D0 /* NotebookPageMenus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C707FA578B1B66395CDCBE4 /* NotebookPageMenus.swift */; };
+		D53946F48B17E3ADD38D4592 /* LectureAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E124CC5EADA4EFF8EE8D8A /* LectureAudio.swift */; };
 		D58CCF67E92C85DE24F5541F /* NotyEditorIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90DCF6F6C7F996170829F98C /* NotyEditorIntegrationTests.swift */; };
 		D929A6FAACC622B930806692 /* noty-qa.pdf in Resources */ = {isa = PBXBuildFile; fileRef = B4563847D343D92E71314932 /* noty-qa.pdf */; };
 		DA48C509ABDF2F974CBF66A7 /* NotyOfficeConversionQualityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF162DAFAA6420F03FD7F043 /* NotyOfficeConversionQualityTests.swift */; };
+		DCA49716647F5CD64F5A8737 /* NotyCanvasGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06804D4A231423D87C0D2EBD /* NotyCanvasGeometry.swift */; };
 		DF7CC171F8B8BF3C09B973F1 /* docx-preview.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 6CEB3204EDCA450CB47AB1E5 /* docx-preview.min.js */; };
 		E6961026DCA01857F6A15721 /* noty-rich.docx in Resources */ = {isa = PBXBuildFile; fileRef = 5B05FDFF4DD7B9327372A0F5 /* noty-rich.docx */; };
 		E70EAA759F066926D96CED6F /* NotyHandwritingRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE90A159BDCB19FC198B0AE0 /* NotyHandwritingRecognizer.swift */; };
+		E932D0E3D595C6D9C03D95F0 /* NotyImportantFeaturesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5504A5CB9E3B358805FD2EED /* NotyImportantFeaturesTests.swift */; };
 		EDBD400148BEF6A663DF2EC5 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 330243D8C37AF39E26CE69A2 /* LibraryView.swift */; };
 		EFE389D9E108FBDF87ADA02A /* DOCXPreview-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 586251782CF53F8BD2DD05C2 /* DOCXPreview-LICENSE.txt */; };
 		F33D175DCC546867FC978DEA /* NotyICloudMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE2AC9ADD8CD9B6DC24FB7C1 /* NotyICloudMirrorTests.swift */; };
@@ -47,29 +69,52 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		06804D4A231423D87C0D2EBD /* NotyCanvasGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyCanvasGeometry.swift; sourceTree = "<group>"; };
+		14B3EBA48004EE6C0A004600 /* NotebookSearchSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotebookSearchSheet.swift; sourceTree = "<group>"; };
 		24C943A28641E867826EC623 /* NotySearchResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotySearchResult.swift; sourceTree = "<group>"; };
 		26E5B7E463A3201DA5DEBB0F /* NotyOneDriveMirrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyOneDriveMirrorTests.swift; sourceTree = "<group>"; };
 		2D23CCFBD48BA88A4707FFC4 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		2E7E0C8552D1E9EBF70123AB /* InfiniteCanvasViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InfiniteCanvasViewport.swift; sourceTree = "<group>"; };
 		2ED2CD41B613DBDC3BC85662 /* NotyModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyModels.swift; sourceTree = "<group>"; };
 		32A4025F6E9EA4ABE842EA71 /* noty-qa.docx */ = {isa = PBXFileReference; path = "noty-qa.docx"; sourceTree = "<group>"; };
 		330243D8C37AF39E26CE69A2 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		36C6DD6C3F9FBA311AEE052E /* NotionTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotionTheme.swift; sourceTree = "<group>"; };
+		48A39263807978B82E048A57 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		4A58A4F2A05D90ADBC06BCAF /* DeleteNotyAccountSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeleteNotyAccountSheet.swift; sourceTree = "<group>"; };
+		4B80282B1167795D10773331 /* NotyShapeRecognition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyShapeRecognition.swift; sourceTree = "<group>"; };
+		5504A5CB9E3B358805FD2EED /* NotyImportantFeaturesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyImportantFeaturesTests.swift; sourceTree = "<group>"; };
 		586251782CF53F8BD2DD05C2 /* DOCXPreview-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "DOCXPreview-LICENSE.txt"; sourceTree = "<group>"; };
 		5B05FDFF4DD7B9327372A0F5 /* noty-rich.docx */ = {isa = PBXFileReference; path = "noty-rich.docx"; sourceTree = "<group>"; };
 		5B8B4CB7D79DAD5D55798EC4 /* Noty.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Noty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		608AF6FE63DD79F9768B5A50 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		61651C7B796C194055FED3E9 /* NotyCanvasAndExportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyCanvasAndExportTests.swift; sourceTree = "<group>"; };
 		6CEB3204EDCA450CB47AB1E5 /* docx-preview.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "docx-preview.min.js"; sourceTree = "<group>"; };
 		739E132FB3DBD3D1CB7BBA25 /* Pako-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Pako-LICENSE.txt"; sourceTree = "<group>"; };
+		7C707FA578B1B66395CDCBE4 /* NotebookPageMenus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotebookPageMenus.swift; sourceTree = "<group>"; };
 		822689D035363EF9F37897FE /* jszip.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = jszip.min.js; sourceTree = "<group>"; };
 		8539863730F58C0678E79F02 /* NotyExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyExportService.swift; sourceTree = "<group>"; };
 		866569FCBE48B110B6C30B23 /* OneDriveService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneDriveService.swift; sourceTree = "<group>"; };
+		86B61E222C3D86725AA9AEA8 /* NotyPageObjectHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyPageObjectHistory.swift; sourceTree = "<group>"; };
+		8D7538C22A194007E232BCA0 /* NotyPageSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyPageSelection.swift; sourceTree = "<group>"; };
 		90DCF6F6C7F996170829F98C /* NotyEditorIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyEditorIntegrationTests.swift; sourceTree = "<group>"; };
+		9716CE88DB931DAEA4162C71 /* FolderDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderDesign.swift; sourceTree = "<group>"; };
+		9F71BBE213CDCFAA698855C0 /* NotyPrivacyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyPrivacyView.swift; sourceTree = "<group>"; };
+		A87D075A76EB79F263049AEA /* PageLassoOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageLassoOverlay.swift; sourceTree = "<group>"; };
+		A8D86537595C0B304EC022B6 /* FrostedWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrostedWorkspace.swift; sourceTree = "<group>"; };
+		A9727035AE42D829D0F925BD /* NotyWritingAndSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyWritingAndSearchTests.swift; sourceTree = "<group>"; };
 		AF162DAFAA6420F03FD7F043 /* NotyOfficeConversionQualityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyOfficeConversionQualityTests.swift; sourceTree = "<group>"; };
+		B100386A9AC4A3A09F78C4BB /* StudyToolsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudyToolsSheet.swift; sourceTree = "<group>"; };
 		B4563847D343D92E71314932 /* noty-qa.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = "noty-qa.pdf"; sourceTree = "<group>"; };
+		C184F65BC4BC963D05B45F33 /* NotySelectionClipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotySelectionClipboard.swift; sourceTree = "<group>"; };
+		C62A3921B744B56F0728ADF4 /* ImageCropSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCropSheet.swift; sourceTree = "<group>"; };
+		C7E124CC5EADA4EFF8EE8D8A /* LectureAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LectureAudio.swift; sourceTree = "<group>"; };
+		C9B3BEEF01C76D17923D81E2 /* FloatingNotebookToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingNotebookToolbar.swift; sourceTree = "<group>"; };
+		D9ACE9D9FF4E43F76596055B /* NotyDrawingRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyDrawingRendering.swift; sourceTree = "<group>"; };
 		E1B2702B617E0CDE032E7D7F /* NotyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyApp.swift; sourceTree = "<group>"; };
 		E585F584FEB9062D197F3E98 /* NotyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyStore.swift; sourceTree = "<group>"; };
 		E592AE9710F15E713739491B /* NotyTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NotyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EC26C0D0B3DBA7028231217C /* NotyICloudMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotyICloudMirror.swift; sourceTree = "<group>"; };
+		F24D18C8F8FB90690DD6F8D1 /* NotebookDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotebookDesign.swift; sourceTree = "<group>"; };
 		F2ABBD8275681D1E0E54A854 /* DocumentEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentEditorView.swift; sourceTree = "<group>"; };
 		F4C53C177452A0B06986BCB8 /* DOCXPreviewPDFSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DOCXPreviewPDFSession.swift; sourceTree = "<group>"; };
 		F70EB43B7C4BABEA8006D96C /* LocalOfficeConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalOfficeConverter.swift; sourceTree = "<group>"; };
@@ -78,23 +123,24 @@
 		FEA69734FB84D67F4028A898 /* JSZip-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "JSZip-LICENSE.txt"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
-/* Begin PBXFrameworksBuildPhase section */
-		F0B1C2D3E4F5061728394A5B /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				E0B1C2D3E4F5061728394A5B /* FontInter in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXFrameworksBuildPhase section */
-
 /* Begin PBXGroup section */
 		015BB1E40E1828F903F2A8F5 /* Editor */ = {
 			isa = PBXGroup;
 			children = (
 				F2ABBD8275681D1E0E54A854 /* DocumentEditorView.swift */,
+				C9B3BEEF01C76D17923D81E2 /* FloatingNotebookToolbar.swift */,
+				C62A3921B744B56F0728ADF4 /* ImageCropSheet.swift */,
+				2E7E0C8552D1E9EBF70123AB /* InfiniteCanvasViewport.swift */,
+				C7E124CC5EADA4EFF8EE8D8A /* LectureAudio.swift */,
+				7C707FA578B1B66395CDCBE4 /* NotebookPageMenus.swift */,
+				14B3EBA48004EE6C0A004600 /* NotebookSearchSheet.swift */,
 				8539863730F58C0678E79F02 /* NotyExportService.swift */,
+				86B61E222C3D86725AA9AEA8 /* NotyPageObjectHistory.swift */,
+				8D7538C22A194007E232BCA0 /* NotyPageSelection.swift */,
+				C184F65BC4BC963D05B45F33 /* NotySelectionClipboard.swift */,
+				4B80282B1167795D10773331 /* NotyShapeRecognition.swift */,
+				A87D075A76EB79F263049AEA /* PageLassoOverlay.swift */,
+				B100386A9AC4A3A09F78C4BB /* StudyToolsSheet.swift */,
 			);
 			path = Editor;
 			sourceTree = "<group>";
@@ -133,6 +179,7 @@
 				608AF6FE63DD79F9768B5A50 /* Assets.xcassets */,
 				2D23CCFBD48BA88A4707FFC4 /* Info.plist */,
 				E1B2702B617E0CDE032E7D7F /* NotyApp.swift */,
+				48A39263807978B82E048A57 /* PrivacyInfo.xcprivacy */,
 				8D8B351EA25F75B8B5C51E1A /* Core */,
 				015BB1E40E1828F903F2A8F5 /* Editor */,
 				CF8A2F6B431FCAECE78F144A /* Library */,
@@ -145,8 +192,12 @@
 			isa = PBXGroup;
 			children = (
 				F4C53C177452A0B06986BCB8 /* DOCXPreviewPDFSession.swift */,
+				A8D86537595C0B304EC022B6 /* FrostedWorkspace.swift */,
 				F70EB43B7C4BABEA8006D96C /* LocalOfficeConverter.swift */,
+				F24D18C8F8FB90690DD6F8D1 /* NotebookDesign.swift */,
 				36C6DD6C3F9FBA311AEE052E /* NotionTheme.swift */,
+				06804D4A231423D87C0D2EBD /* NotyCanvasGeometry.swift */,
+				D9ACE9D9FF4E43F76596055B /* NotyDrawingRendering.swift */,
 				FE90A159BDCB19FC198B0AE0 /* NotyHandwritingRecognizer.swift */,
 				EC26C0D0B3DBA7028231217C /* NotyICloudMirror.swift */,
 				2ED2CD41B613DBDC3BC85662 /* NotyModels.swift */,
@@ -172,7 +223,10 @@
 		CF8A2F6B431FCAECE78F144A /* Library */ = {
 			isa = PBXGroup;
 			children = (
+				4A58A4F2A05D90ADBC06BCAF /* DeleteNotyAccountSheet.swift */,
+				9716CE88DB931DAEA4162C71 /* FolderDesign.swift */,
 				330243D8C37AF39E26CE69A2 /* LibraryView.swift */,
+				9F71BBE213CDCFAA698855C0 /* NotyPrivacyView.swift */,
 			);
 			path = Library;
 			sourceTree = "<group>";
@@ -191,10 +245,13 @@
 		F5D26B66DE5F0518544C0860 /* NotyTests */ = {
 			isa = PBXGroup;
 			children = (
+				61651C7B796C194055FED3E9 /* NotyCanvasAndExportTests.swift */,
 				90DCF6F6C7F996170829F98C /* NotyEditorIntegrationTests.swift */,
 				FE2AC9ADD8CD9B6DC24FB7C1 /* NotyICloudMirrorTests.swift */,
+				5504A5CB9E3B358805FD2EED /* NotyImportantFeaturesTests.swift */,
 				AF162DAFAA6420F03FD7F043 /* NotyOfficeConversionQualityTests.swift */,
 				26E5B7E463A3201DA5DEBB0F /* NotyOneDriveMirrorTests.swift */,
+				A9727035AE42D829D0F925BD /* NotyWritingAndSearchTests.swift */,
 			);
 			path = NotyTests;
 			sourceTree = "<group>";
@@ -207,7 +264,6 @@
 			buildConfigurationList = FF3E9B1D907CD05A53C15416 /* Build configuration list for PBXNativeTarget "Noty" */;
 			buildPhases = (
 				071A8D0B2C3066D969F6D37F /* Sources */,
-				F0B1C2D3E4F5061728394A5B /* Frameworks */,
 				BE7F08C080C33AF139DB19C3 /* Resources */,
 			);
 			buildRules = (
@@ -216,7 +272,6 @@
 			);
 			name = Noty;
 			packageProductDependencies = (
-				C0B1C2D3E4F5061728394A5B /* FontInter */,
 			);
 			productName = Noty;
 			productReference = 5B8B4CB7D79DAD5D55798EC4 /* Noty.app */;
@@ -266,9 +321,6 @@
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 23B79ECB6A47A7C7FE5277DC /* Products */;
-			packageReferences = (
-				A0B1C2D3E4F5061728394A5B /* XCRemoteSwiftPackageReference "FontKit" */,
-			);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -287,6 +339,7 @@
 				EFE389D9E108FBDF87ADA02A /* DOCXPreview-LICENSE.txt in Resources */,
 				3E5074AFF66E8E9A30923F0E /* JSZip-LICENSE.txt in Resources */,
 				4E4D10125BBD21342906B145 /* Pako-LICENSE.txt in Resources */,
+				1E4BE80D86EA88B9C2FE95D4 /* PrivacyInfo.xcprivacy in Resources */,
 				DF7CC171F8B8BF3C09B973F1 /* docx-preview.min.js in Resources */,
 				9BE4484AB8555183688E6DCC /* jszip.min.js in Resources */,
 			);
@@ -310,18 +363,37 @@
 			buildActionMask = 2147483647;
 			files = (
 				A364A682D797B3EE63C57171 /* DOCXPreviewPDFSession.swift in Sources */,
+				BC1D78B3AE217D4BA0D06AB5 /* DeleteNotyAccountSheet.swift in Sources */,
 				B322E694D848E74F6673F447 /* DocumentEditorView.swift in Sources */,
+				60C14A98249EDFBB788F6093 /* FloatingNotebookToolbar.swift in Sources */,
+				305FAD0FA251A31C2C1151CB /* FolderDesign.swift in Sources */,
+				3EEC77EA4E24F8ECADAA0225 /* FrostedWorkspace.swift in Sources */,
+				C3AD4E6A8807D92E8E0EB215 /* ImageCropSheet.swift in Sources */,
+				9C44EB3C29DE04235A0E60FA /* InfiniteCanvasViewport.swift in Sources */,
+				D53946F48B17E3ADD38D4592 /* LectureAudio.swift in Sources */,
 				EDBD400148BEF6A663DF2EC5 /* LibraryView.swift in Sources */,
 				9930B1CB55144B45D3C8B63C /* LocalOfficeConverter.swift in Sources */,
+				AA072361C3E4E6A87C92BACB /* NotebookDesign.swift in Sources */,
+				D40A63E80FEB89C7BAAEC7D0 /* NotebookPageMenus.swift in Sources */,
+				01B6A65B29254602CC84DC93 /* NotebookSearchSheet.swift in Sources */,
 				2140B165EF8C2B6D6562EAF0 /* NotionTheme.swift in Sources */,
 				C3F04E649A1E0CD2C024D55E /* NotyApp.swift in Sources */,
+				DCA49716647F5CD64F5A8737 /* NotyCanvasGeometry.swift in Sources */,
+				A1B6D50C89C5E8661B730E5B /* NotyDrawingRendering.swift in Sources */,
 				F887CAB85ECAFB256B223114 /* NotyExportService.swift in Sources */,
 				E70EAA759F066926D96CED6F /* NotyHandwritingRecognizer.swift in Sources */,
 				7E9B4E3A8A79421C21723022 /* NotyICloudMirror.swift in Sources */,
 				FB451556339CC2ECFDF69AC5 /* NotyModels.swift in Sources */,
+				0BB3E0BFA3A63A8BA1598523 /* NotyPageObjectHistory.swift in Sources */,
+				C96386140E05D2342A7FD997 /* NotyPageSelection.swift in Sources */,
+				0EAF718E9801B31C083508FB /* NotyPrivacyView.swift in Sources */,
 				448E1A386C0A9705EAF080D0 /* NotySearchResult.swift in Sources */,
+				1EDB479D982CE19DB04B3701 /* NotySelectionClipboard.swift in Sources */,
+				6C0DA84DF3938933E2182B3E /* NotyShapeRecognition.swift in Sources */,
 				F6E980BBEE0550C5215D614B /* NotyStore.swift in Sources */,
 				6FB5AC45861AC7BE876612E5 /* OneDriveService.swift in Sources */,
+				A0739D017F557F3B271BDCC7 /* PageLassoOverlay.swift in Sources */,
+				06C7C3C9E8DB8406B497CAE0 /* StudyToolsSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -329,10 +401,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8304E81A3C5F82D31BB2CCF0 /* NotyCanvasAndExportTests.swift in Sources */,
 				D58CCF67E92C85DE24F5541F /* NotyEditorIntegrationTests.swift in Sources */,
 				F33D175DCC546867FC978DEA /* NotyICloudMirrorTests.swift in Sources */,
+				E932D0E3D595C6D9C03D95F0 /* NotyImportantFeaturesTests.swift in Sources */,
 				DA48C509ABDF2F974CBF66A7 /* NotyOfficeConversionQualityTests.swift in Sources */,
 				D3EED013981A738D71974166 /* NotyOneDriveMirrorTests.swift in Sources */,
+				0D50B87103433CFBC8331752 /* NotyWritingAndSearchTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -345,25 +420,6 @@
 			targetProxy = 85C056C9BB022750D2A86F51 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		A0B1C2D3E4F5061728394A5B /* XCRemoteSwiftPackageReference "FontKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/VishwaiOSDev/FontKit.git";
-			requirement = {
-				kind = revision;
-				revision = d058c81d3c16d1993f40240d071e360a3519e571;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		C0B1C2D3E4F5061728394A5B /* FontInter */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A0B1C2D3E4F5061728394A5B /* XCRemoteSwiftPackageReference "FontKit" */;
-			productName = FontInter;
-		};
-/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		3393A8B70F7E17B8770C786B /* Debug */ = {

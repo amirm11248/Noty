@@ -39,7 +39,7 @@ final class NotyICloudMirrorTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let store = NotyStore(storageDirectoryURL: libraryURL)
-        _ = store.createDocument(title: "Rapid edits", kind: .note, folderID: nil)
+        let document = try XCTUnwrap(store.createDocument(title: "Rapid edits", kind: .note, folderID: nil))
         try store.configureICloudMirror(folderURL: selectedCloudFolder)
         await store.syncICloudMirror()
         XCTAssertFalse(store.syncStatus.contains("failed"), store.syncStatus)
@@ -48,6 +48,9 @@ final class NotyICloudMirrorTests: XCTestCase {
         let firstGenerationCount = try FileManager.default.contentsOfDirectory(atPath: snapshotsURL.path).count
         XCTAssertEqual(firstGenerationCount, 1)
 
+        let revision = try XCTUnwrap(store.documents.first?.updatedAt)
+        store.saveDrawing(PKDrawing(), documentID: document.id, pageID: try XCTUnwrap(document.pages.first?.id))
+        XCTAssertEqual(store.documents.first?.updatedAt, revision, "Opening or leaving an untouched page must not mark the notebook as edited.")
         await store.syncICloudMirror()
         XCTAssertFalse(store.syncStatus.contains("failed"), store.syncStatus)
         let secondGenerationCount = try FileManager.default.contentsOfDirectory(atPath: snapshotsURL.path).count
@@ -180,6 +183,43 @@ final class NotyICloudMirrorTests: XCTestCase {
         XCTAssertFalse(secondStore.syncStatus.localizedCaseInsensitiveContains("failed"), secondStore.syncStatus)
         XCTAssertTrue(FileManager.default.fileExists(atPath: legacyRoot.appendingPathComponent("Current.json").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: newRoot.path))
+    }
+
+    @MainActor
+    func testMirrorRestoresCoverAudioAndFolderCustomization() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("NotyStudyMirror-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let shared = root.appendingPathComponent("shared")
+        try FileManager.default.createDirectory(at: shared, withIntermediateDirectories: true)
+        let first = NotyStore(storageDirectoryURL: root.appendingPathComponent("first"))
+        first.createFolder(name: "Physics", parentID: nil, design: NotyNotebookCover(style: .linen, colorHex: "497B76"), symbol: "atom")
+        let folderID = try XCTUnwrap(first.folders.first?.id)
+        let book = first.createDocument(title: "Mechanics", kind: .book, folderID: folderID, firstPage: NotyPage(template: .grid), cover: NotyNotebookCover())
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 60, height: 80)).image { ctx in UIColor.blue.setFill(); ctx.fill(CGRect(x: 0, y: 0, width: 60, height: 80)) }
+        let photoData = try XCTUnwrap(image.pngData())
+        try first.updateCover(documentID: book.id, cover: NotyNotebookCover(style: .minimal), imageData: photoData)
+        let clip = NotyAudioClip(title: "Lecture", fileName: "lecture-fixture.m4a", duration: 12, pageID: book.pages[1].id)
+        let audioData = Data("fixture recording asset".utf8)
+        try audioData.write(to: first.assetDirectoryURL(documentID: book.id).appendingPathComponent(clip.fileName))
+        first.addAudioClip(documentID: book.id, clip: clip)
+        first.updateStudyCards(documentID: book.id, cards: [NotyStudyCard(question: "Force?", answer: "Mass × acceleration")])
+        try first.configureICloudMirror(folderURL: shared)
+        await first.syncICloudMirror()
+        let second = NotyStore(storageDirectoryURL: root.appendingPathComponent("second"))
+        try second.configureICloudMirror(folderURL: shared)
+        await second.syncICloudMirror()
+        let restored = try XCTUnwrap(second.documents.first)
+        XCTAssertTrue(restored.pages[0].isCover)
+        XCTAssertNotNil(second.coverImage(for: restored))
+        XCTAssertEqual(restored.studyCards?.first?.answer, "Mass × acceleration")
+        let restoredClip = try XCTUnwrap(restored.audioClips?.first)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(second.audioURL(documentID: book.id, clip: restoredClip))), audioData)
+        second.updateFolderDesign(id: folderID, design: NotyNotebookCover(style: .geometric, colorHex: "5267A9"), symbol: "graduationcap", imageData: photoData)
+        await second.syncICloudMirror()
+        await first.syncICloudMirror()
+        XCTAssertEqual(first.folders[0].design?.style, .geometric)
+        XCTAssertEqual(first.folders[0].symbol, "graduationcap")
+        XCTAssertEqual(first.folders[0].imageData, photoData)
     }
 
 }

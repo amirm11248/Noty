@@ -6,13 +6,7 @@ import Vision
 enum NotyHandwritingRecognizer {
     static func recognize(drawingData: Data) throws -> String {
         let drawing = try PKDrawing(data: drawingData)
-        guard !drawing.strokes.isEmpty else { return "" }
-
-        let drawingBounds = drawing.bounds
-        guard !drawingBounds.isNull, !drawingBounds.isEmpty else { return "" }
-        let imageBounds = drawingBounds.insetBy(dx: -12, dy: -12)
-        let image = drawing.image(from: imageBounds, scale: 2)
-        guard let cgImage = image.cgImage else { return "" }
+        guard let cgImage = recognitionImage(for: drawing)?.cgImage else { return "" }
 
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
@@ -52,5 +46,39 @@ enum NotyHandwritingRecognizer {
             .filter { !$0.isEmpty }
 
         return lines.joined(separator: "\n")
+    }
+    static func recognitionImage(for drawing: PKDrawing) -> UIImage? {
+        guard !drawing.strokes.isEmpty else { return nil }
+
+        let drawingBounds = drawing.bounds
+        guard !drawingBounds.isNull, !drawingBounds.isEmpty else { return nil }
+        // Vision needs surrounding whitespace to detect isolated handwritten words reliably.
+        let padding = max(24, min(max(drawingBounds.width, drawingBounds.height) * 0.75, 240))
+        let imageBounds = drawingBounds.insetBy(dx: -padding, dy: -padding)
+        // Normalize ink for OCR so light ink on dark paper is searchable too.
+        let monochrome = PKDrawing(strokes: drawing.strokes.map { stroke in
+            PKStroke(ink: PKInk(stroke.ink.inkType, color: .black), path: stroke.path, transform: stroke.transform, mask: stroke.mask)
+        })
+        let scale = min(2, 4096 / max(imageBounds.width, imageBounds.height))
+        let inkImage = monochrome.notyImage(from: imageBounds, scale: scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: inkImage.size, format: format).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: inkImage.size))
+            inkImage.draw(at: .zero)
+        }
+        return image
+
+    }
+
+}
+
+/// Serializes Vision work across pages so a large library doesn't launch many OCR jobs at once.
+actor NotyHandwritingRecognitionWorker {
+    static let shared = NotyHandwritingRecognitionWorker()
+    func recognize(drawingData: Data) throws -> String {
+        try NotyHandwritingRecognizer.recognize(drawingData: drawingData)
     }
 }

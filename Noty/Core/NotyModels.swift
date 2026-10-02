@@ -5,6 +5,7 @@ enum NotyDocumentKind: String, Codable, CaseIterable {
     case note
     case pdf
     case book
+    case whiteboard
 }
 
 enum NotyPageTemplate: String, Codable, CaseIterable {
@@ -15,6 +16,10 @@ enum NotyPageTemplate: String, Codable, CaseIterable {
     case smallGrid
     case dots
     case cornell
+    case weeklyPlanner
+    case dailyPlanner
+    case music
+    case checklist
 }
 
 enum NotyPageSizePreset: String, Codable, CaseIterable {
@@ -54,11 +59,19 @@ struct NotyFolder: Identifiable, Codable, Hashable {
     var id: UUID
     var name: String
     var parentID: UUID?
+    var design: NotyNotebookCover?
+    var symbol: String?
+    var imageData: Data?
+    var updatedAt: Date?
 
-    init(id: UUID = UUID(), name: String, parentID: UUID? = nil) {
+    init(id: UUID = UUID(), name: String, parentID: UUID? = nil, design: NotyNotebookCover? = nil, symbol: String? = nil, imageData: Data? = nil, updatedAt: Date? = nil) {
         self.id = id
         self.name = name
         self.parentID = parentID
+        self.design = design
+        self.symbol = symbol
+        self.imageData = imageData
+        self.updatedAt = updatedAt
     }
 }
 
@@ -76,6 +89,8 @@ struct NotyTextBox: Identifiable, Codable, Hashable {
     var isUnderlined: Bool
     var colorHex: String
     var alignment: NotyTextAlignment
+    var paddingScale: Double?
+    var contentInsetScale: Double { max(paddingScale ?? 1, 0.01) }
 
     init(
         id: UUID = UUID(),
@@ -105,11 +120,12 @@ struct NotyTextBox: Identifiable, Codable, Hashable {
         self.isUnderlined = isUnderlined
         self.colorHex = colorHex
         self.alignment = alignment
+        self.paddingScale = nil
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, text, x, y, width, height, fontSize, fontName
-        case isBold, isItalic, isUnderlined, colorHex, alignment
+        case isBold, isItalic, isUnderlined, colorHex, alignment, paddingScale
     }
 
     init(from decoder: Decoder) throws {
@@ -127,6 +143,7 @@ struct NotyTextBox: Identifiable, Codable, Hashable {
         isUnderlined = try container.decodeIfPresent(Bool.self, forKey: .isUnderlined) ?? false
         colorHex = try container.decodeIfPresent(String.self, forKey: .colorHex) ?? "37352F"
         alignment = try container.decodeIfPresent(NotyTextAlignment.self, forKey: .alignment) ?? .leading
+        paddingScale = try container.decodeIfPresent(Double.self, forKey: .paddingScale)
     }
 }
 
@@ -138,6 +155,10 @@ struct NotyPageImage: Identifiable, Codable, Hashable {
     var width: Double
     var height: Double
     var rotationDegrees: Double
+    var cropX: Double?
+    var cropY: Double?
+    var cropWidth: Double?
+    var cropHeight: Double?
 
     init(
         id: UUID = UUID(),
@@ -170,6 +191,13 @@ struct NotyPage: Identifiable, Codable, Hashable {
     var paperColorHex: String
     var sizePreset: NotyPageSizePreset
     var orientation: NotyPageOrientation
+    var isCover: Bool
+    var customWidth: Double?
+    var customHeight: Double?
+    var viewportCenterX: Double?
+    var viewportCenterY: Double?
+    var canvasOffsetX: Double?
+    var canvasOffsetY: Double?
 
     init(
         id: UUID = UUID(),
@@ -181,7 +209,10 @@ struct NotyPage: Identifiable, Codable, Hashable {
         bookmarkTitle: String? = nil,
         paperColorHex: String = "FFFFFF",
         sizePreset: NotyPageSizePreset = .letter,
-        orientation: NotyPageOrientation = .portrait
+        orientation: NotyPageOrientation = .portrait,
+        isCover: Bool = false,
+        customWidth: Double? = nil,
+        customHeight: Double? = nil
     ) {
         self.id = id
         self.template = template
@@ -193,9 +224,15 @@ struct NotyPage: Identifiable, Codable, Hashable {
         self.paperColorHex = paperColorHex
         self.sizePreset = sizePreset
         self.orientation = orientation
+        self.isCover = isCover
+        self.customWidth = customWidth
+        self.customHeight = customHeight
     }
 
+    var canvasOffset: CGPoint { CGPoint(x: canvasOffsetX ?? 0, y: canvasOffsetY ?? 0) }
+
     var canvasSize: CGSize {
+        if let customWidth, let customHeight, customWidth.isFinite, customHeight.isFinite, customWidth > 0, customHeight > 0 { return CGSize(width: customWidth, height: customHeight) }
         let base = sizePreset.portraitSize
         if orientation == .landscape && base.width != base.height {
             return CGSize(width: base.height, height: base.width)
@@ -205,7 +242,7 @@ struct NotyPage: Identifiable, Codable, Hashable {
 
     private enum CodingKeys: String, CodingKey {
         case id, template, sourcePageIndex, textBoxes, images, isBookmarked, bookmarkTitle
-        case paperColorHex, sizePreset, orientation
+        case paperColorHex, sizePreset, orientation, isCover, customWidth, customHeight, viewportCenterX, viewportCenterY, canvasOffsetX, canvasOffsetY
     }
 
     init(from decoder: Decoder) throws {
@@ -220,6 +257,13 @@ struct NotyPage: Identifiable, Codable, Hashable {
         paperColorHex = try container.decodeIfPresent(String.self, forKey: .paperColorHex) ?? "FFFFFF"
         sizePreset = try container.decodeIfPresent(NotyPageSizePreset.self, forKey: .sizePreset) ?? .letter
         orientation = try container.decodeIfPresent(NotyPageOrientation.self, forKey: .orientation) ?? .portrait
+        isCover = try container.decodeIfPresent(Bool.self, forKey: .isCover) ?? false
+        customWidth = try container.decodeIfPresent(Double.self, forKey: .customWidth)
+        customHeight = try container.decodeIfPresent(Double.self, forKey: .customHeight)
+        viewportCenterX = try container.decodeIfPresent(Double.self, forKey: .viewportCenterX)
+        viewportCenterY = try container.decodeIfPresent(Double.self, forKey: .viewportCenterY)
+        canvasOffsetX = try container.decodeIfPresent(Double.self, forKey: .canvasOffsetX)
+        canvasOffsetY = try container.decodeIfPresent(Double.self, forKey: .canvasOffsetY)
     }
 }
 
@@ -231,6 +275,9 @@ struct NotyDocument: Identifiable, Codable, Hashable {
     var pages: [NotyPage]
     var createdAt: Date
     var updatedAt: Date
+    var cover: NotyNotebookCover?
+    var studyCards: [NotyStudyCard]?
+    var audioClips: [NotyAudioClip]?
 
     init(
         id: UUID = UUID(),
@@ -239,7 +286,10 @@ struct NotyDocument: Identifiable, Codable, Hashable {
         folderID: UUID? = nil,
         pages: [NotyPage] = [NotyPage()],
         createdAt: Date = .now,
-        updatedAt: Date = .now
+        updatedAt: Date = .now,
+        cover: NotyNotebookCover? = nil,
+        studyCards: [NotyStudyCard]? = nil,
+        audioClips: [NotyAudioClip]? = nil
     ) {
         self.id = id
         self.title = title
@@ -248,6 +298,9 @@ struct NotyDocument: Identifiable, Codable, Hashable {
         self.pages = pages
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.cover = cover
+        self.studyCards = studyCards
+        self.audioClips = audioClips
     }
 }
 
@@ -299,4 +352,31 @@ enum NotyStoreError: LocalizedError {
             return "The Noty sync data could not be read: \(message)"
         }
     }
+}
+
+struct NotyNotebookCover: Codable, Hashable {
+    var style: NotyCoverStyle = .gradient
+    var colorHex: String = "5267A9"
+    var imageFileName: String?
+}
+
+enum NotyCoverStyle: String, Codable, CaseIterable, Identifiable {
+    case gradient, linen, geometric, minimal
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+}
+
+struct NotyStudyCard: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var question: String
+    var answer: String
+}
+
+struct NotyAudioClip: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var title: String
+    var fileName: String
+    var duration: Double
+    var createdAt: Date = .now
+    var pageID: UUID?
 }

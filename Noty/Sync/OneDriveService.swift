@@ -471,6 +471,19 @@ final class NotyAccountService {
         lastError = nil
     }
 
+    func deleteAccount(password: String) async throws {
+        guard isAuthenticated else { throw NotyAccountError.notSignedIn }
+        try await runThrowing {
+            var request = baseRequest(path: "/functions/v1/noty-delete-account", method: "POST")
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["password": password, "confirmation": "DELETE"])
+            _ = try await authorizedData(request)
+            clearLocalSession()
+            sharedFolderLink = nil
+            folderDisplayName = nil
+            status = "Account deleted. Your notebooks remain on this device."
+        }
+    }
+
     func refreshProfile() async {
         guard isAuthenticated else { return }
         await run {

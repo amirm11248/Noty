@@ -20,6 +20,9 @@ final class NotyOfficeConversionQualityTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: store.userImportsDirectoryURL(documentID: document.id)) }
         let pdf = try XCTUnwrap(store.sourcePDF(documentID: document.id))
         XCTAssertGreaterThan(pdf.pageCount, 0)
+        let paper = try XCTUnwrap(pdf.page(at: 0)).bounds(for: .mediaBox)
+        XCTAssertEqual(paper.width, 612, accuracy: 1, "Word's Letter page should export at its physical paper size.")
+        XCTAssertEqual(paper.height, 792, accuracy: 1)
         let allText = (0..<pdf.pageCount).compactMap { pdf.page(at: $0)?.string }.joined(separator: " ")
         XCTAssertTrue(allText.contains("Noty rich conversion fixture"), allText)
         XCTAssertTrue(allText.contains("Biology"), allText)
