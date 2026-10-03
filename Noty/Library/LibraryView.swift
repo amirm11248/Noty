@@ -1896,7 +1896,7 @@ private struct LibrarySettingsView: View {
             }
             Section("About") {
                 NavigationLink("Privacy", destination: NotyPrivacyView())
-                Text("Noty works offline. Choose a sync folder to keep an editable copy across your devices.").font(.caption).foregroundStyle(.secondary)
+                Text("Noty stays local-first and works offline. Sign in to sync the editable library with Noty Cloud across iOS and web; Files and OneDrive remain optional backups.").font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 if account.isAuthenticated {
@@ -1951,7 +1951,37 @@ private struct LibrarySettingsView: View {
             } header: {
                 Text("Noty Account")
             } footer: {
-                Text("Your account remembers your sync folder setup across devices. Your notebooks stay on your device and in the folder you choose.")
+                Text("Use the same Noty account on iOS and the web app. Your iPad keeps the local working copy for offline use.")
+            }
+
+            Section {
+                LabeledContent("Cloud library", value: account.isAuthenticated ? "Connected" : "Sign in above")
+                Text(cloud.syncStatus)
+                    .font(NotionTheme.caption)
+                    .foregroundStyle(cloud.lastError == nil ? NotionTheme.inkSecondary : NotionTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                if let lastError = cloud.lastError {
+                    Text(lastError)
+                        .font(NotionTheme.caption)
+                        .foregroundStyle(NotionTheme.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+                Button("Sync Noty Cloud now", systemImage: "arrow.triangle.2.circlepath") {
+                    Task {
+                        await cloud.sync(store: store, account: account)
+                        NotyBackgroundSyncScheduler.scheduleIfNeeded(hasWork: account.isAuthenticated || store.hasICloudMirror || oneDrive.isConnected)
+                    }
+                }
+                .disabled(!account.isAuthenticated || cloud.isSyncing)
+                if cloud.isSyncing {
+                    ProgressView()
+                }
+            } header: {
+                Text("Noty Cloud")
+            } footer: {
+                Text("Supabase syncs your library structure and document metadata. Private Backblaze B2 storage holds PDFs, drawings, photos, audio, and other notebook files. B2 credentials stay on the server.")
             }
 
             if let persistenceError = store.lastPersistenceError, !persistenceError.isEmpty {
@@ -2064,7 +2094,7 @@ private struct LibrarySettingsView: View {
                     }
                     Button("Disconnect", systemImage: "xmark.circle", role: .destructive) {
                         oneDrive.disconnect()
-                        NotyBackgroundSyncScheduler.scheduleIfNeeded(hasWork: store.hasICloudMirror)
+                        NotyBackgroundSyncScheduler.scheduleIfNeeded(hasWork: account.isAuthenticated || store.hasICloudMirror)
                     }
                 }
                 Text("Sign in with Microsoft in the official OneDrive app, then select its writable folder in Files. Noty saves PDF copies after edits while it is open and when you return to it. Deleted Noty pages keep their saved PDF copies here. The selected Files provider may upload them later.")
@@ -2204,6 +2234,8 @@ private struct LibrarySettingsView: View {
                 try await account.signIn(email: accountEmail, password: accountPassword)
                 accountPassword = ""
                 sharedFolderLinkDraft = account.sharedFolderLink ?? ""
+                await cloud.sync(store: store, account: account)
+                NotyBackgroundSyncScheduler.scheduleIfNeeded(hasWork: true)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -2216,6 +2248,10 @@ private struct LibrarySettingsView: View {
                 try await account.signUp(email: accountEmail, password: accountPassword)
                 accountPassword = ""
                 sharedFolderLinkDraft = account.sharedFolderLink ?? ""
+                if account.isAuthenticated {
+                    await cloud.sync(store: store, account: account)
+                    NotyBackgroundSyncScheduler.scheduleIfNeeded(hasWork: true)
+                }
             } catch {
                 errorMessage = error.localizedDescription
             }
