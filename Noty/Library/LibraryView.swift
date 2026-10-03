@@ -29,6 +29,7 @@ struct LibraryView: View {
     @State private var searchResults: [NotySearchResult] = []
     @State private var selectedSearchResult: NotySearchResult?
     @State private var account = NotyAccountService()
+    @State private var cloud = NotyCloudSyncService()
     @AppStorage("noty.library.favoriteDocumentIDs") private var favoriteIDsValue = ""
     @AppStorage("noty.library.recentDocumentIDs") private var recentIDsValue = ""
     @AppStorage("noty.library.shelfView") private var shelfView = true
@@ -115,11 +116,12 @@ struct LibraryView: View {
         }
         .onChange(of: documentRevisionSignature) { _, _ in
             refreshSearchResults()
-            scheduleOneDriveSync()
+            scheduleCloudSync()
             scheduleBackgroundCloudRetry()
         }
         .onChange(of: folderRevisionSignature) { _, _ in
             refreshSearchResults()
+            scheduleCloudSync()
             scheduleBackgroundCloudRetry()
         }
         .onChange(of: searchText) { _, _ in
@@ -130,8 +132,8 @@ struct LibraryView: View {
             withAnimation(.easeInOut(duration: 0.2)) {
                 columnVisibility = path.isEmpty ? .all : .detailOnly
             }
-            if path.isEmpty, oneDrive.isConnected {
-                Task { await oneDrive.syncAllPDFs(store: store) }
+            if path.isEmpty {
+                Task { await syncCloudMirrors() }
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -159,8 +161,8 @@ struct LibraryView: View {
             syncDebounce?.cancel()
             syncDebounce = nil
             syncDebounceID = nil
-            if oneDrive.isConnected {
-                Task { await oneDrive.syncAllPDFs(store: store) }
+            if account.isAuthenticated || oneDrive.isConnected || store.hasICloudMirror {
+                Task { await syncCloudMirrors() }
             }
         }
     }
@@ -1330,7 +1332,7 @@ struct LibraryView: View {
             }
         case .settings:
             NavigationStack {
-                LibrarySettingsView(store: store, oneDrive: oneDrive, account: account)
+                LibrarySettingsView(store: store, oneDrive: oneDrive, account: account, cloud: cloud)
             }
         }
     }
@@ -1393,9 +1395,7 @@ struct LibraryView: View {
                 if !operationMessages.isEmpty {
                     alertMessage = operationMessages.joined(separator: "\n")
                 }
-                if oneDrive.isConnected {
-                    await oneDrive.syncAllPDFs(store: store)
-                }
+                await syncCloudMirrors()
             }
         }
     }
@@ -1527,8 +1527,8 @@ struct LibraryView: View {
         store.updatePageImages(documentID: documentID, pageID: pageID, images: pageImages)
     }
 
-    private func scheduleOneDriveSync() {
-        guard oneDrive.isConnected else { return }
+    private func scheduleCloudSync() {
+        guard account.isAuthenticated || oneDrive.isConnected else { return }
         syncDebounce?.cancel()
         let scheduleID = UUID()
         syncDebounceID = scheduleID
@@ -1537,11 +1537,19 @@ struct LibraryView: View {
             guard !Task.isCancelled, syncDebounceID == scheduleID else { return }
             syncDebounce = nil
             syncDebounceID = nil
-            await oneDrive.syncAllPDFs(store: store)
+            if account.isAuthenticated {
+                await cloud.sync(store: store, account: account)
+            }
+            if oneDrive.isConnected {
+                await oneDrive.syncAllPDFs(store: store)
+            }
         }
     }
 
     private func syncCloudMirrors() async {
+        if account.isAuthenticated {
+            await cloud.sync(store: store, account: account)
+        }
         if oneDrive.isConnected {
             await oneDrive.syncAllPDFs(store: store)
         }
@@ -1552,7 +1560,7 @@ struct LibraryView: View {
 
     private func scheduleBackgroundCloudRetry() {
         NotyBackgroundSyncScheduler.scheduleIfNeeded(
-            hasWork: store.hasICloudMirror || oneDrive.isConnected
+            hasWork: account.isAuthenticated || store.hasICloudMirror || oneDrive.isConnected
         )
     }
 
@@ -1864,6 +1872,7 @@ private struct LibrarySettingsView: View {
     var store: NotyStore
     var oneDrive: OneDriveService
     var account: NotyAccountService
+    var cloud: NotyCloudSyncService
 
     @Environment(\.dismiss) private var dismiss
     @State private var isChoosingFolder = false
