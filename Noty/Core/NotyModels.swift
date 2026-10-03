@@ -186,6 +186,8 @@ struct NotyPage: Identifiable, Codable, Hashable {
     var sourcePageIndex: Int?
     var textBoxes: [NotyTextBox]
     var images: [NotyPageImage]
+    /// HTML used by the web editor. iOS preserves it even when it does not render it.
+    var webHTML: String?
     var isBookmarked: Bool
     var bookmarkTitle: String?
     var paperColorHex: String
@@ -205,6 +207,7 @@ struct NotyPage: Identifiable, Codable, Hashable {
         sourcePageIndex: Int? = nil,
         textBoxes: [NotyTextBox] = [],
         images: [NotyPageImage] = [],
+        webHTML: String? = nil,
         isBookmarked: Bool = false,
         bookmarkTitle: String? = nil,
         paperColorHex: String = "FFFFFF",
@@ -219,6 +222,7 @@ struct NotyPage: Identifiable, Codable, Hashable {
         self.sourcePageIndex = sourcePageIndex
         self.textBoxes = textBoxes
         self.images = images
+        self.webHTML = webHTML
         self.isBookmarked = isBookmarked
         self.bookmarkTitle = bookmarkTitle
         self.paperColorHex = paperColorHex
@@ -241,7 +245,7 @@ struct NotyPage: Identifiable, Codable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, template, sourcePageIndex, textBoxes, images, isBookmarked, bookmarkTitle
+        case id, template, sourcePageIndex, textBoxes, images, webHTML, isBookmarked, bookmarkTitle
         case paperColorHex, sizePreset, orientation, isCover, customWidth, customHeight, viewportCenterX, viewportCenterY, canvasOffsetX, canvasOffsetY
     }
 
@@ -252,6 +256,7 @@ struct NotyPage: Identifiable, Codable, Hashable {
         sourcePageIndex = try container.decodeIfPresent(Int.self, forKey: .sourcePageIndex)
         textBoxes = try container.decodeIfPresent([NotyTextBox].self, forKey: .textBoxes) ?? []
         images = try container.decodeIfPresent([NotyPageImage].self, forKey: .images) ?? []
+        webHTML = try container.decodeIfPresent(String.self, forKey: .webHTML)
         isBookmarked = try container.decodeIfPresent(Bool.self, forKey: .isBookmarked) ?? false
         bookmarkTitle = try container.decodeIfPresent(String.self, forKey: .bookmarkTitle)
         paperColorHex = try container.decodeIfPresent(String.self, forKey: .paperColorHex) ?? "FFFFFF"
