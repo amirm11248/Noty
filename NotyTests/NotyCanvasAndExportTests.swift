@@ -152,7 +152,7 @@ extension NotyCanvasAndExportTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = NotyStore(storageDirectoryURL: root)
-        let document = store.createDocument(title: "Web ink", folderID: nil)
+        let document = store.createDocument(title: "Web ink", kind: .note, folderID: nil)
         var manifest = store.currentManifest()
         manifest.documents[0].pages[0].webStrokes = [NotyWebStroke(id: UUID(), color: "202020", width: 3, points: [NotyWebPoint(x: 10, y: 20), NotyWebPoint(x: 90, y: 80)])]
         XCTAssertTrue(store.applyCloudManifest(manifest))
