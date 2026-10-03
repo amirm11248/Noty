@@ -1,6 +1,6 @@
 import { makeDeleteAccountHandler } from './handler.ts';
 
-function fixture(options: { invalidIdentity?: boolean; wrongPassword?: boolean; differentUser?: boolean; signOutError?: boolean; deleteError?: boolean } = {}) {
+function fixture(options: { invalidIdentity?: boolean; wrongPassword?: boolean; differentUser?: boolean; cleanupError?: boolean; signOutError?: boolean; deleteError?: boolean } = {}) {
   const events: string[] = [];
   const client = { auth: {
     getUser: async (_jwt: string) => ({ data: { user: options.invalidIdentity ? null : { id: 'caller-id', email: 'student@example.invalid' } }, error: options.invalidIdentity ? 'invalid' : null }),
@@ -10,7 +10,14 @@ function fixture(options: { invalidIdentity?: boolean; wrongPassword?: boolean; 
       deleteUser: async (id: string) => { events.push(`delete:${id}`); return { error: options.deleteError ? 'failed' : null }; },
     },
   } };
-  const handler = makeDeleteAccountHandler({ env: () => 'configured', createClient: () => client });
+  const handler = makeDeleteAccountHandler({
+    env: () => 'configured',
+    createClient: () => client,
+    deleteCloudData: async (id: string) => {
+      events.push(`cloud-delete:${id}`);
+      if (options.cleanupError) throw new Error('failed');
+    },
+  });
   const request = (body: unknown = { password: 'test-password', confirmation: 'DELETE', user_id: 'victim-id' }, authorized = true) => new Request('https://example.invalid', { method: 'POST', headers: { ...(authorized ? { Authorization: 'Bearer test-token' } : {}), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   return { handler, request, events };
 }
@@ -20,6 +27,7 @@ Deno.test('rejects invalid identity', async () => { const f = fixture({ invalidI
 Deno.test('requires explicit deletion confirmation', async () => { const f = fixture(); equal((await f.handler(f.request({ password: 'test-password' }))).status, 400); equal(f.events, []); });
 Deno.test('rejects wrong password', async () => { const f = fixture({ wrongPassword: true }); equal((await f.handler(f.request())).status, 403); equal(f.events, []); });
 Deno.test('rejects password session for another identity', async () => { const f = fixture({ differentUser: true }); equal((await f.handler(f.request())).status, 403); equal(f.events, []); });
-Deno.test('revokes sessions then deletes only caller, ignoring supplied user id', async () => { const f = fixture(); equal((await f.handler(f.request())).status, 200); equal(f.events, ['sign-out', 'delete:caller-id']); });
-Deno.test('does not delete account when session revocation fails', async () => { const f = fixture({ signOutError: true }); equal((await f.handler(f.request())).status, 503); equal(f.events, ['sign-out']); });
-Deno.test('reports deletion failure honestly', async () => { const f = fixture({ deleteError: true }); equal((await f.handler(f.request())).status, 503); equal(f.events, ['sign-out', 'delete:caller-id']); });
+Deno.test('deletes cloud files, revokes sessions, then deletes only caller', async () => { const f = fixture(); equal((await f.handler(f.request())).status, 200); equal(f.events, ['cloud-delete:caller-id', 'sign-out', 'delete:caller-id']); });
+Deno.test('does not delete account when cloud cleanup fails', async () => { const f = fixture({ cleanupError: true }); equal((await f.handler(f.request())).status, 503); equal(f.events, ['cloud-delete:caller-id']); });
+Deno.test('does not delete account when session revocation fails', async () => { const f = fixture({ signOutError: true }); equal((await f.handler(f.request())).status, 503); equal(f.events, ['cloud-delete:caller-id', 'sign-out']); });
+Deno.test('reports deletion failure honestly', async () => { const f = fixture({ deleteError: true }); equal((await f.handler(f.request())).status, 503); equal(f.events, ['cloud-delete:caller-id', 'sign-out', 'delete:caller-id']); });

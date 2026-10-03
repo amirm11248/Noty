@@ -12,6 +12,7 @@ type AccountClient = {
 type Dependencies = {
   env: (key: string) => string | undefined;
   createClient: (url: string, key: string, options: { auth: { persistSession: boolean; autoRefreshToken: boolean } }) => AccountClient;
+  deleteCloudData?: (userID: string) => Promise<void>;
 };
 const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
 const reply = (status: number, message: string) => new Response(JSON.stringify({ message }), { status, headers });
@@ -36,6 +37,11 @@ export function makeDeleteAccountHandler(deps: Dependencies) {
       const verifier = deps.createClient(url, publicKey, options);
       const { data: verified, error: passwordError } = await verifier.auth.signInWithPassword({ email: identity.user.email, password: body.password });
       if (passwordError || !verified.session || verified.user?.id !== identity.user.id) return reply(403, 'The password could not be verified.');
+      try {
+        await deps.deleteCloudData?.(identity.user.id);
+      } catch {
+        return reply(503, 'Your cloud files could not be deleted. Your account is still active; please retry.');
+      }
       const { error: signOutError } = await admin.auth.admin.signOut(verified.session.access_token, 'global');
       if (signOutError) return reply(503, 'Please try again. Your account has not been deleted.');
       const { error: deleteError } = await admin.auth.admin.deleteUser(identity.user.id);
