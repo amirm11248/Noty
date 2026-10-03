@@ -1180,6 +1180,22 @@ final class NotyStore {
         )
     }
 
+    /// Installs metadata merged by the account cloud synchronizer without
+    /// marking the result as a new local edit. Binary assets are transferred
+    /// separately and remain in the same local-first document package.
+    @discardableResult
+    func applyCloudManifest(_ manifest: NotyStoreManifest) -> Bool {
+        folders = manifest.folders
+        documents = manifest.documents
+        deletionRecords = manifest.deletions
+        folderDeletionRecords = manifest.folderDeletions
+        let saved = persistCurrentManifest(scheduleCloudSync: false, countsAsLocalEdit: false)
+        if saved {
+            searchIndexRevision &+= 1
+        }
+        return saved
+    }
+
     @discardableResult
     func persistCurrentManifest(scheduleCloudSync: Bool = true, countsAsLocalEdit: Bool = true) -> Bool {
         do {
