@@ -632,7 +632,7 @@ final class NotyCloudSyncService {
         return formatter.string(from: date)
     }
 
-    private static func safeRelativePath(_ raw: String) -> String? {
+    nonisolated private static func safeRelativePath(_ raw: String) -> String? {
         let path = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !path.isEmpty,
               path.count <= 900,
