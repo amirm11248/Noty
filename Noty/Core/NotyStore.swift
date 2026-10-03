@@ -383,6 +383,9 @@ final class NotyStore {
                 try fileManager.removeItem(at: packageURL)
             }
             try? fileManager.removeItem(at: userImportsDirectoryURL(documentID: id))
+            deletionRecords.removeAll { $0.id == id }
+            deletionRecords.append(NotyDeletionRecord(id: id, deletedAt: Self.storeTimestamp()))
+            _ = persistCurrentManifest()
             lastOperationMessage = "The document was permanently deleted."
         } catch {
             trashItems.insert(item, at: min(itemIndex, trashItems.count))
@@ -834,6 +837,11 @@ final class NotyStore {
                 if saved == drawingData || (drawing.strokes.isEmpty && (try? PKDrawing(data: saved).strokes.isEmpty) == true) { return }
             } else if drawing.strokes.isEmpty { return }
             try drawingData.write(to: destination, options: .atomic)
+            // Browser strokes were included in the drawing supplied to PencilKit.
+            // Once edited natively, retain them in the binary drawing exactly once.
+            if let pageIndex = documents[documentIndex].pages.firstIndex(where: { $0.id == pageID }) {
+                documents[documentIndex].pages[pageIndex].webStrokes = nil
+            }
             // An edited or erased word must stop matching the previous OCR immediately.
             try? fileManager.removeItem(at: handwritingTextURL(documentID: documentID, pageID: pageID))
             try? fileManager.removeItem(at: handwritingDigestURL(documentID: documentID, pageID: pageID))
@@ -851,10 +859,58 @@ final class NotyStore {
 
     func drawing(documentID: UUID, pageID: UUID) -> PKDrawing {
         let url = drawingURL(documentID: documentID, pageID: pageID)
-        guard let data = try? Data(contentsOf: url), let drawing = try? PKDrawing(data: data) else {
-            return PKDrawing()
+        let native = (try? Data(contentsOf: url)).flatMap { try? PKDrawing(data: $0) } ?? PKDrawing()
+        let web = documents.first(where: { $0.id == documentID })?.pages.first(where: { $0.id == pageID })?.webStrokes ?? []
+        let strokes: [PKStroke] = web.compactMap { stroke in
+            guard !stroke.points.isEmpty else { return nil }
+            let hex = stroke.color.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+            let value = UInt32(hex, radix: 16) ?? 0x202020
+            let color = UIColor(red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255, blue: CGFloat(value & 255) / 255, alpha: 1)
+            let width = CGFloat(max(0.5, min(stroke.width, 100)))
+            let points = stroke.points.enumerated().map { index, point in
+                PKStrokePoint(location: CGPoint(x: point.x, y: point.y), timeOffset: Double(index) * 0.01,
+                              size: CGSize(width: width, height: width), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }
+            return PKStroke(ink: PKInk(.pen, color: color), path: PKStrokePath(controlPoints: points, creationDate: Date(timeIntervalSince1970: 0)))
         }
-        return drawing
+        return PKDrawing(strokes: native.strokes + strokes)
+    }
+
+    /// A portable, transparent preview of native PencilKit ink. Browser strokes
+    /// are separate page metadata and must not appear twice in this preview.
+    func refreshCloudInkPreviews(documentID: UUID) throws {
+        guard let document = documents.first(where: { $0.id == documentID }) else { return }
+        let directory = assetDirectoryURL(documentID: documentID).appendingPathComponent("InkPreviews", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        for page in document.pages {
+            let source = drawingURL(documentID: documentID, pageID: page.id)
+            let target = directory.appendingPathComponent("\(page.id.uuidString).png")
+            guard let data = try? Data(contentsOf: source), let drawing = try? PKDrawing(data: data) else { continue }
+            let bounds = CGRect(origin: CGPoint(x: -page.canvasOffset.x, y: -page.canvasOffset.y), size: page.canvasSize)
+            // Bound memory on infinite whiteboards; preserve their aspect ratio.
+            let scale = min(1.5, 2048 / max(bounds.width, bounds.height))
+            if let png = drawing.image(from: bounds, scale: scale).pngData() {
+                if (try? Data(contentsOf: target)) != png { try png.write(to: target, options: .atomic) }
+            }
+        }
+    }
+
+    func stageCloudTrashAssets(id: UUID) throws {
+        guard let item = trashItems.first(where: { $0.id == id }) else { return }
+        let source = trashDirectoryURL.appendingPathComponent(item.recoveryDirectoryName).appendingPathComponent("Assets")
+        let target = assetDirectoryURL(documentID: id)
+        if fileManager.fileExists(atPath: source.path), !fileManager.fileExists(atPath: target.path) {
+            try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fileManager.copyItem(at: source, to: target)
+        }
+    }
+
+    /// Persist remote Trash metadata together with a recoverable local package.
+    func retainCloudTrash(document: NotyDocument, deletedAt: Date) throws {
+        if let index = trashItems.firstIndex(where: { $0.id == document.id }), trashItems[index].deletedAt >= deletedAt { return }
+        let item = try prepareLocalTrashPackage(for: document, deletedAt: deletedAt)
+        trashItems.removeAll { $0.id == document.id }
+        trashItems.insert(item, at: 0)
     }
 
     func recognizedHandwriting(documentID: UUID, pageID: UUID) -> String {

@@ -3,7 +3,9 @@ import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
+  ListObjectVersionsCommand,
   PutObjectCommand,
   S3Client,
 } from 'npm:@aws-sdk/client-s3@3.922.0';
@@ -87,13 +89,35 @@ Deno.serve(async (request: Request) => {
     const action = typeof body?.action === 'string' ? body.action : '';
     const documentID = safeUUID(body?.documentID);
 
-    if (action === 'presign_upload' || action === 'presign_download' || action === 'delete_object') {
+    if (action === 'presign_upload' || action === 'presign_download' || action === 'delete_object' || action === 'verify_upload') {
       const relativePath = safeRelativePath(body?.relativePath);
       if (!documentID || !relativePath) return reply(400, { message: 'Invalid document or asset path.' });
 
-      const objectKey = 'users/' + user.id + '/documents/' + documentID + '/' + relativePath;
+      const prefix = 'users/' + user.id + '/documents/' + documentID + '/';
+      const hash = typeof body?.sha256 === 'string' && /^[0-9a-f]{64}$/.test(body.sha256) ? body.sha256 : null;
+      const requestedKey = typeof body?.objectKey === 'string' ? body.objectKey : null;
+      let objectKey = prefix + (hash ? 'versions/' + hash + '/' : '') + relativePath;
+      if (requestedKey) {
+        const suffix = requestedKey.startsWith(prefix) ? safeRelativePath(requestedKey.slice(prefix.length)) : null;
+        if (!suffix || !(suffix === relativePath || /^versions\/[0-9a-f]{64}\//.test(suffix) && suffix.slice(74) === relativePath)) {
+          return reply(400, { message: 'Invalid object version.' });
+        }
+        objectKey = requestedKey;
+      }
+
+
+      if (action === 'verify_upload') {
+        const expected = body?.byteSize;
+        if (!Number.isSafeInteger(expected) || expected < 0 || expected > 250 * 1024 * 1024) {
+          return reply(400, { message: 'Invalid asset size.' });
+        }
+        const head = await b2.client.send(new HeadObjectCommand({ Bucket: b2.bucket, Key: objectKey }));
+        if (head.ContentLength !== expected) return reply(409, { message: 'The upload is incomplete. Retry it.' });
+        return reply(200, { ok: true, byteSize: head.ContentLength });
+      }
 
       if (action === 'presign_upload') {
+        if (requestedKey) return reply(400, { message: 'Use a content hash for uploads.' });
         const contentType =
           typeof body?.contentType === 'string' && body.contentType.length <= 200
             ? body.contentType
@@ -120,31 +144,24 @@ Deno.serve(async (request: Request) => {
     if (action === 'delete_document') {
       if (!documentID) return reply(400, { message: 'Invalid document.' });
       const prefix = 'users/' + user.id + '/documents/' + documentID + '/';
-      let continuationToken: string | undefined;
-      let deleted = 0;
-
-      do {
-        const listed = await b2.client.send(
-          new ListObjectsV2Command({
-            Bucket: b2.bucket,
-            Prefix: prefix,
-            ContinuationToken: continuationToken,
-            MaxKeys: 1000,
-          }),
-        );
-        const objects = (listed.Contents ?? [])
-          .flatMap((item) => (item.Key ? [{ Key: item.Key }] : []));
-        if (objects.length) {
-          await b2.client.send(
-            new DeleteObjectsCommand({
-              Bucket: b2.bucket,
-              Delete: { Objects: objects, Quiet: true },
-            }),
-          );
-          deleted += objects.length;
-        }
-        continuationToken = listed.IsTruncated ? listed.NextContinuationToken : undefined;
-      } while (continuationToken);
+  let deleted = 0;
+  let keyMarker: string | undefined;
+  let versionMarker: string | undefined;
+  do {
+    const listed = await b2.client.send(new ListObjectVersionsCommand({
+      Bucket: b2.bucket, Prefix: prefix, KeyMarker: keyMarker,
+      VersionIdMarker: versionMarker, MaxKeys: 1000,
+    }));
+    const objects = [...(listed.Versions ?? []), ...(listed.DeleteMarkers ?? [])]
+      .flatMap(item => item.Key && item.VersionId ? [{Key:item.Key,VersionId:item.VersionId}] : []);
+    if(objects.length) {
+      const removed = await b2.client.send(new DeleteObjectsCommand({Bucket:b2.bucket,Delete:{Objects:objects,Quiet:true}}));
+      if(removed.Errors?.length) throw new Error('Cloud deletion was incomplete.');
+      deleted += objects.length;
+    }
+    keyMarker = listed.IsTruncated ? listed.NextKeyMarker : undefined;
+    versionMarker = listed.IsTruncated ? listed.NextVersionIdMarker : undefined;
+  } while(keyMarker);
 
       return reply(200, { ok: true, deleted });
     }

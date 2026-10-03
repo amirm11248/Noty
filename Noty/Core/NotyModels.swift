@@ -179,6 +179,14 @@ struct NotyPageImage: Identifiable, Codable, Hashable {
     }
 }
 
+struct NotyWebPoint: Codable, Hashable { var x: Double; var y: Double }
+struct NotyWebStroke: Codable, Hashable {
+    var id: UUID
+    var color: String
+    var width: Double
+    var points: [NotyWebPoint]
+}
+
 struct NotyPage: Identifiable, Codable, Hashable {
     var id: UUID
     var template: NotyPageTemplate
@@ -188,6 +196,7 @@ struct NotyPage: Identifiable, Codable, Hashable {
     var images: [NotyPageImage]
     /// HTML used by the web editor. iOS preserves it even when it does not render it.
     var webHTML: String?
+    var webStrokes: [NotyWebStroke]?
     var isBookmarked: Bool
     var bookmarkTitle: String?
     var paperColorHex: String
@@ -245,7 +254,7 @@ struct NotyPage: Identifiable, Codable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, template, sourcePageIndex, textBoxes, images, webHTML, isBookmarked, bookmarkTitle
+        case id, template, sourcePageIndex, textBoxes, images, webHTML, webStrokes, isBookmarked, bookmarkTitle
         case paperColorHex, sizePreset, orientation, isCover, customWidth, customHeight, viewportCenterX, viewportCenterY, canvasOffsetX, canvasOffsetY
     }
 
@@ -257,6 +266,7 @@ struct NotyPage: Identifiable, Codable, Hashable {
         textBoxes = try container.decodeIfPresent([NotyTextBox].self, forKey: .textBoxes) ?? []
         images = try container.decodeIfPresent([NotyPageImage].self, forKey: .images) ?? []
         webHTML = try container.decodeIfPresent(String.self, forKey: .webHTML)
+        webStrokes = try container.decodeIfPresent([NotyWebStroke].self, forKey: .webStrokes)
         isBookmarked = try container.decodeIfPresent(Bool.self, forKey: .isBookmarked) ?? false
         bookmarkTitle = try container.decodeIfPresent(String.self, forKey: .bookmarkTitle)
         paperColorHex = try container.decodeIfPresent(String.self, forKey: .paperColorHex) ?? "FFFFFF"

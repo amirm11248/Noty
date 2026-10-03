@@ -2,6 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.117.2';
 import {
   DeleteObjectsCommand,
   ListObjectsV2Command,
+  ListObjectVersionsCommand,
   S3Client,
 } from 'npm:@aws-sdk/client-s3@3.922.0';
 import { makeDeleteAccountHandler } from './handler.ts';
@@ -33,24 +34,25 @@ function b2Client() {
 async function deleteCloudData(userID: string) {
   const { bucket, client } = b2Client();
   const prefix = `users/${userID}/`;
-  let continuationToken: string | undefined;
-
+  let deleted = 0;
+  let keyMarker: string | undefined;
+  let versionMarker: string | undefined;
   do {
-    const listed = await client.send(new ListObjectsV2Command({
-      Bucket: bucket,
-      Prefix: prefix,
-      ContinuationToken: continuationToken,
-      MaxKeys: 1000,
+    const listed = await client.send(new ListObjectVersionsCommand({
+      Bucket: bucket, Prefix: prefix, KeyMarker: keyMarker,
+      VersionIdMarker: versionMarker, MaxKeys: 1000,
     }));
-    const objects = (listed.Contents ?? []).flatMap((item) => item.Key ? [{ Key: item.Key }] : []);
-    if (objects.length) {
-      await client.send(new DeleteObjectsCommand({
-        Bucket: bucket,
-        Delete: { Objects: objects, Quiet: true },
-      }));
+    const objects = [...(listed.Versions ?? []), ...(listed.DeleteMarkers ?? [])]
+      .flatMap(item => item.Key && item.VersionId ? [{Key:item.Key,VersionId:item.VersionId}] : []);
+    if(objects.length) {
+      const removed = await client.send(new DeleteObjectsCommand({Bucket:bucket,Delete:{Objects:objects,Quiet:true}}));
+      if(removed.Errors?.length) throw new Error('Cloud deletion was incomplete.');
+      deleted += objects.length;
     }
-    continuationToken = listed.IsTruncated ? listed.NextContinuationToken : undefined;
-  } while (continuationToken);
+    keyMarker = listed.IsTruncated ? listed.NextKeyMarker : undefined;
+    versionMarker = listed.IsTruncated ? listed.NextVersionIdMarker : undefined;
+  } while(keyMarker);
+
 }
 
 Deno.serve(makeDeleteAccountHandler({

@@ -11,6 +11,7 @@ final class NotyCloudSyncService {
     private(set) var lastError: String?
 
     @ObservationIgnored private var syncRequestedAgain = false
+    @ObservationIgnored private var checkpoints: [UUID: CloudCheckpoint] = [:]
     @ObservationIgnored private let fileManager = FileManager.default
 
     func sync(store: NotyStore, account: NotyAccountService) async {
@@ -65,9 +66,18 @@ final class NotyCloudSyncService {
         decoder.dateDecodingStrategy = .millisecondsSince1970
         let remoteFolders = try decoder.decode([CloudFolderRow].self, from: try await folderData)
         let remoteDocuments = try decoder.decode([CloudDocumentRow].self, from: try await documentData)
-        let remoteAssets = try decoder.decode([CloudAssetRow].self, from: try await assetData)
+        let assetRows = try decoder.decode([CloudAssetRow].self, from: try await assetData)
+        // A document revision points at immutable file versions. The mutable asset
+        // index is only a fallback for older clients and unfinished transfers.
+        let remoteAssets = remoteDocuments.flatMap { row -> [CloudAssetRow] in
+            guard let manifest = row.payload.assetManifest, !manifest.isEmpty else { return assetRows.filter { $0.document_id == row.id } }
+            return manifest.map { path, ref in CloudAssetRow(document_id: row.id, relative_path: path, object_key: ref.object_key, sha256: ref.sha256, byte_size: ref.byte_size, content_type: ref.content_type, updated_at: row.updated_at) }
+        }
         let remoteTombstones = try decoder.decode([CloudTombstoneRow].self, from: try await tombstoneData)
 
+        let checkpointURL = store.storageDirectoryURL.appendingPathComponent("cloud-checkpoints-\(userID).json")
+        checkpoints = (try? JSONDecoder().decode([UUID: CloudCheckpoint].self, from: Data(contentsOf: checkpointURL))) ?? [:]
+        let startingLocalRevision = store.localRevision
         let local = store.currentManifest()
         var folders = Dictionary(uniqueKeysWithValues: local.folders.map { ($0.id, $0) })
         var documents = Dictionary(uniqueKeysWithValues: local.documents.map { ($0.id, $0) })
@@ -93,6 +103,7 @@ final class NotyCloudSyncService {
             }
         }
 
+        var purgedDocuments = Set<UUID>()
         var localAuthoritativeDocuments = Set<UUID>()
         var remoteAuthoritativeDocuments = Set<UUID>()
         var localAuthoritativeFolders = Set<UUID>()
@@ -140,6 +151,40 @@ final class NotyCloudSyncService {
             folderDeletions[row.id] = nil
         }
 
+        // A known baseline makes simultaneous and offline edits distinguishable.
+        // Preserve a divergent local notebook, including every binary file, before accepting remote metadata.
+        for row in remoteDocuments where row.trashed_at == nil {
+            guard let original = documents[row.id],
+                  let remoteDate = Self.parseDate(row.updated_at),
+                  let createdDate = Self.parseDate(row.created_at),
+                  let remote = row.toDocument(createdAt: createdDate, updatedAt: remoteDate) else { continue }
+            var comparable = original
+            comparable.updatedAt = remote.updatedAt
+            comparable.createdAt = remote.createdAt
+            let baseline = checkpoints[row.id]
+            let localChanged = baseline.map { original.updatedAt != $0.localUpdatedAt } ?? (comparable != remote)
+            let remoteChanged = baseline.map { row.revision != $0.revision } ?? (comparable != remote)
+            if localChanged && remoteChanged && comparable != remote {
+                var copy = original
+                copy.id = UUID()
+                copy.title = String(original.title.prefix(270)) + " (iPad conflict copy)"
+                copy.createdAt = Date()
+                copy.updatedAt = copy.createdAt
+                let source = store.assetDirectoryURL(documentID: original.id)
+                if fileManager.fileExists(atPath: source.path) {
+                    try fileManager.copyItem(at: source, to: store.assetDirectoryURL(documentID: copy.id))
+                }
+                documents[copy.id] = copy
+                localAuthoritativeDocuments.insert(copy.id)
+                documents[row.id] = remote
+                remoteAuthoritativeDocuments.insert(row.id)
+                localAuthoritativeDocuments.remove(row.id)
+            } else if let baseline, !localChanged && row.revision != baseline.revision {
+                documents[row.id] = remote
+                remoteAuthoritativeDocuments.insert(row.id)
+            }
+        }
+
         // Merge live documents using last-write-wins timestamps.
         for row in remoteDocuments where row.trashed_at == nil {
             guard let remoteUpdatedAt = Self.parseDate(row.updated_at),
@@ -175,7 +220,7 @@ final class NotyCloudSyncService {
 
         // A local tombstone can beat an older remote live row.
         for (id, deletedAt) in Array(documentDeletions) {
-            if let row = remoteDocumentMap[id], let remoteUpdatedAt = Self.parseDate(row.updated_at), remoteUpdatedAt > deletedAt {
+            if let row = remoteDocumentMap[id], row.trashed_at == nil, let remoteUpdatedAt = Self.parseDate(row.updated_at), remoteUpdatedAt > deletedAt {
                 documentDeletions[id] = nil
                 if let remoteCreatedAt = Self.parseDate(row.created_at),
                    let remoteDocument = row.toDocument(createdAt: remoteCreatedAt, updatedAt: remoteUpdatedAt) {
@@ -220,9 +265,25 @@ final class NotyCloudSyncService {
 
         // Push/clear tombstones before live rows, so restores are explicit.
         for (id, deletedAt) in documentDeletions {
-            try await upsertTombstone(entityType: "document", id: id, deletedAt: deletedAt, userID: userID, account: account)
-            if let row = remoteDocumentMap[id], let updatedAt = Self.parseDate(row.updated_at), updatedAt <= deletedAt {
-                try await deleteRemoteDocument(id: id, account: account)
+            if let item = store.trashItems.first(where: { $0.id == id }), remoteDocumentDeletions[id] == nil {
+                // Trashing is reversible on every device; never purge B2 files here.
+                try store.stageCloudTrashAssets(id: id)
+                _ = try await syncAssets(document: item.document, remoteAssets: remoteAssets.filter { $0.document_id == id }, authority: .local, store: store, userID: userID, account: account)
+                try await upsert(document: item.document, existing: remoteDocumentMap[id], userID: userID, account: account, trashedAt: deletedAt)
+            } else if remoteDocumentMap[id]?.trashed_at != nil {
+                if store.trashItems.contains(where: { $0.id == id }) { continue }
+                if let row = remoteDocumentMap[id], let changed = Self.parseDate(row.updated_at), deletedAt > changed {
+                    try await upsertTombstone(entityType: "document", id: id, deletedAt: deletedAt, userID: userID, account: account)
+                    try await deleteRemoteDocument(id: id, account: account)
+                    try await deleteRemoteDocumentAssets(documentID: id, account: account)
+                    purgedDocuments.insert(id)
+                }
+                continue
+            } else {
+                try await upsertTombstone(entityType: "document", id: id, deletedAt: deletedAt, userID: userID, account: account)
+                if let row = remoteDocumentMap[id], let updatedAt = Self.parseDate(row.updated_at), updatedAt <= deletedAt {
+                    try await deleteRemoteDocument(id: id, account: account)
+                }
             }
         }
         for (id, deletedAt) in folderDeletions {
@@ -240,9 +301,21 @@ final class NotyCloudSyncService {
         for id in localAuthoritativeDocuments {
             guard let document = documents[id] else { continue }
             try await deleteTombstone(entityType: "document", id: id, account: account)
+            // Upload binaries before publishing page metadata that references them.
+            try store.refreshCloudInkPreviews(documentID: id)
+            _ = try await syncAssets(document: document, remoteAssets: remoteAssets.filter { $0.document_id == id }, authority: .local, store: store, userID: userID, account: account)
             try await upsert(document: document, existing: remoteDocumentMap[id], userID: userID, account: account)
+            if let checkpoint = checkpoints[id], var updated = documents[id] {
+                updated.updatedAt = checkpoint.localUpdatedAt
+                documents[id] = updated
+            }
         }
 
+        // A user edit while requests were in flight must never be overwritten by this snapshot.
+        guard store.localRevision == startingLocalRevision else {
+            syncRequestedAgain = true
+            return
+        }
         // Persist the merged metadata locally before transferring assets.
         let mergedManifest = NotyStoreManifest(
             folders: folders.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending },
@@ -257,7 +330,7 @@ final class NotyCloudSyncService {
 
         // Remove cloud assets for deleted documents once the metadata tombstone is durable.
         var remainingRemoteAssets = remoteAssets
-        for documentID in documentDeletions.keys where remainingRemoteAssets.contains(where: { $0.document_id == documentID }) {
+        for documentID in documentDeletions.keys where remoteTombstones.contains(where: { $0.entity_type == "document" && $0.entity_id == documentID }) && remainingRemoteAssets.contains(where: { $0.document_id == documentID }) {
             try await deleteRemoteDocumentAssets(documentID: documentID, account: account)
             remainingRemoteAssets.removeAll { $0.document_id == documentID }
         }
@@ -290,6 +363,24 @@ final class NotyCloudSyncService {
             deleted += result.deleted
         }
 
+        // Download remotely trashed notebooks into a recoverable package as well.
+        for row in remoteDocuments where !purgedDocuments.contains(row.id) {
+            guard let raw = row.trashed_at, let deletedAt = Self.parseDate(raw),
+                  let createdAt = Self.parseDate(row.created_at), let updatedAt = Self.parseDate(row.updated_at),
+                  let document = row.toDocument(createdAt: createdAt, updatedAt: updatedAt) else { continue }
+            if !store.trashItems.contains(where: { $0.id == row.id && $0.deletedAt >= deletedAt }) {
+                for asset in remoteAssets where asset.document_id == row.id {
+                    try await download(remote: asset, documentID: row.id, store: store, account: account)
+                }
+                try store.retainCloudTrash(document: document, deletedAt: deletedAt)
+            }
+        }
+        for row in remoteDocuments where !localAuthoritativeDocuments.contains(row.id) {
+            if let localDocument = store.documents.first(where: { $0.id == row.id }) {
+                checkpoints[row.id] = CloudCheckpoint(revision: row.revision, localUpdatedAt: localDocument.updatedAt)
+            }
+        }
+        try JSONEncoder().encode(checkpoints).write(to: checkpointURL, options: .atomic)
         store.ensureHandwritingSearchIndex()
         syncStatus = "Noty Cloud synced · \(store.documents.count) document\(store.documents.count == 1 ? "" : "s") · \(uploaded) uploaded, \(downloaded) downloaded\(deleted > 0 ? ", \(deleted) removed" : "")."
     }
@@ -320,7 +411,7 @@ final class NotyCloudSyncService {
 
             switch (localAsset, remoteAsset) {
             case let (.some(local), .some(remote)):
-                if local.sha256 == remote.sha256 { continue }
+                if local.sha256 == remote.sha256 && remote.object_key.contains("/versions/\(local.sha256)/") { continue }
                 if authority == .remote {
                     try await download(remote: remote, documentID: document.id, store: store, account: account)
                     downloaded += 1
@@ -337,21 +428,16 @@ final class NotyCloudSyncService {
 
             case let (.some(local), .none):
                 if authority == .remote {
-                    try? fileManager.removeItem(at: local.url)
-                    deleted += 1
+                    // Keep unreferenced local bytes until explicit deletion; interrupted uploads can be retried.
+                    continue
                 } else {
                     try await upload(local: local, documentID: document.id, userID: userID, account: account)
                     uploaded += 1
                 }
 
             case let (.none, .some(remote)):
-                if authority == .local {
-                    try await delete(remote: remote, documentID: document.id, account: account)
-                    deleted += 1
-                } else {
-                    try await download(remote: remote, documentID: document.id, store: store, account: account)
-                    downloaded += 1
-                }
+                try await download(remote: remote, documentID: document.id, store: store, account: account)
+                downloaded += 1
 
             case (.none, .none):
                 break
@@ -418,6 +504,7 @@ final class NotyCloudSyncService {
             documentID: documentID,
             relativePath: local.relativePath,
             contentType: local.contentType,
+            sha256: local.sha256,
             account: account
         )
         guard let url = URL(string: signed.url) else { throw NotyCloudError.invalidResponse }
@@ -455,6 +542,7 @@ final class NotyCloudSyncService {
             documentID: documentID,
             relativePath: relativePath,
             contentType: nil,
+            objectKey: remote.object_key,
             account: account
         )
         guard let url = URL(string: signed.url) else { throw NotyCloudError.invalidResponse }
@@ -496,6 +584,8 @@ final class NotyCloudSyncService {
         documentID: UUID,
         relativePath: String,
         contentType: String?,
+        sha256: String? = nil,
+        objectKey: String? = nil,
         account: NotyAccountService
     ) async throws -> SignedURLResponse {
         var body: [String: Any] = [
@@ -504,6 +594,8 @@ final class NotyCloudSyncService {
             "relativePath": relativePath
         ]
         if let contentType { body["contentType"] = contentType }
+        if let sha256 { body["sha256"] = sha256 }
+        if let objectKey { body["objectKey"] = objectKey }
         let data = try await account.backendData(
             path: "/functions/v1/noty-cloud-object",
             method: "POST",
@@ -523,21 +615,29 @@ final class NotyCloudSyncService {
             "payload": try Self.jsonObject(payload),
             "updated_at": Self.formatDate(folder.updatedAt ?? .now)
         ]
-        _ = try await account.backendData(
-            path: "/rest/v1/noty_web_folders?on_conflict=user_id,id",
-            method: "POST",
-            jsonBody: body,
-            prefer: "resolution=merge-duplicates,return=minimal"
-        )
+        let data: Data
+        if let existing {
+            data = try await account.backendData(path: "/rest/v1/noty_web_folders?id=eq.\(folder.id.uuidString.lowercased())&updated_at=eq.\(Self.queryValue(existing.updated_at))", method: "PATCH", jsonBody: body, prefer: "return=representation")
+        } else {
+            data = try await account.backendData(path: "/rest/v1/noty_web_folders", method: "POST", jsonBody: body, prefer: "return=representation")
+        }
+        guard !((try? JSONSerialization.jsonObject(with: data) as? [Any]) ?? []).isEmpty else {
+            throw NotyCloudError.transfer("This folder changed during sync. Retry to receive its newer version.")
+        }
     }
 
-    private func upsert(document: NotyDocument, existing: CloudDocumentRow?, userID: String, account: NotyAccountService) async throws {
-        let payload = CloudDocumentPayload(
+    private func upsert(document: NotyDocument, existing: CloudDocumentRow?, userID: String, account: NotyAccountService, trashedAt: Date? = nil) async throws {
+        var payload = CloudDocumentPayload(
             pages: document.pages,
             cover: document.cover,
             studyCards: document.studyCards,
             audioClips: document.audioClips
         )
+        var assetManifest = existing?.payload.assetManifest ?? [:]
+        for asset in try await localAssets(documentID: document.id, store: store) {
+            assetManifest[asset.relativePath] = CloudAssetReference(object_key: "users/\(userID)/documents/\(document.id.uuidString.lowercased())/versions/\(asset.sha256)/\(asset.relativePath)", sha256: asset.sha256, byte_size: asset.byteSize, content_type: asset.contentType)
+        }
+        payload.assetManifest = assetManifest
         let body: [String: Any] = [
             "user_id": userID,
             "id": document.id.uuidString.lowercased(),
@@ -546,17 +646,27 @@ final class NotyCloudSyncService {
             "folder_id": document.folderID?.uuidString.lowercased() ?? NSNull(),
             "payload": try Self.jsonObject(payload),
             "starred": existing?.starred ?? false,
-            "trashed_at": NSNull(),
+            "trashed_at": trashedAt.map(Self.formatDate) as Any? ?? NSNull(),
             "created_at": Self.formatDate(document.createdAt),
             "updated_at": Self.formatDate(document.updatedAt),
             "revision": max((existing?.revision ?? 0) + 1, 1)
         ]
-        _ = try await account.backendData(
-            path: "/rest/v1/noty_web_documents?on_conflict=user_id,id",
-            method: "POST",
-            jsonBody: body,
-            prefer: "resolution=merge-duplicates,return=minimal"
-        )
+        let data: Data
+        if let existing {
+            data = try await account.backendData(
+                path: "/rest/v1/noty_web_documents?id=eq.\(document.id.uuidString.lowercased())&revision=eq.\(existing.revision)",
+                method: "PATCH", jsonBody: body, prefer: "return=representation"
+            )
+        } else {
+            data = try await account.backendData(path: "/rest/v1/noty_web_documents", method: "POST", jsonBody: body, prefer: "return=representation")
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .millisecondsSince1970
+        let rows = try decoder.decode([CloudDocumentRow].self, from: data)
+        guard let row = rows.first, let serverDate = Self.parseDate(row.updated_at) else {
+            throw NotyCloudError.transfer("This notebook changed during sync. The local copy is retained; sync again to resolve it.")
+        }
+        checkpoints[document.id] = CloudCheckpoint(revision: row.revision, localUpdatedAt: serverDate)
     }
 
     private func upsertTombstone(entityType: String, id: UUID, deletedAt: Date, userID: String, account: NotyAccountService) async throws {
@@ -708,6 +818,7 @@ private struct CloudDocumentPayload: Codable {
     var cover: NotyNotebookCover?
     var studyCards: [NotyStudyCard]?
     var audioClips: [NotyAudioClip]?
+    var assetManifest: [String: CloudAssetReference]?
 
     init(
         pages: [NotyPage] = [NotyPage()],
@@ -722,7 +833,7 @@ private struct CloudDocumentPayload: Codable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case pages, cover, studyCards, audioClips
+        case pages, cover, studyCards, audioClips, assetManifest
     }
 
     init(from decoder: Decoder) throws {
@@ -731,6 +842,7 @@ private struct CloudDocumentPayload: Codable {
         cover = try container.decodeIfPresent(NotyNotebookCover.self, forKey: .cover)
         studyCards = try container.decodeIfPresent([NotyStudyCard].self, forKey: .studyCards)
         audioClips = try container.decodeIfPresent([NotyAudioClip].self, forKey: .audioClips)
+        assetManifest = try container.decodeIfPresent([String: CloudAssetReference].self, forKey: .assetManifest)
     }
 }
 
@@ -821,3 +933,7 @@ private enum NotyCloudError: LocalizedError {
         }
     }
 }
+
+private struct CloudCheckpoint: Codable { let revision: Int64; let localUpdatedAt: Date }
+
+private struct CloudAssetReference: Codable { let object_key: String; let sha256: String; let byte_size: Int64; let content_type: String }

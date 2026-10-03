@@ -145,3 +145,25 @@ final class NotyCanvasAndExportTests: XCTestCase {
         return PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: points, creationDate: .now))
     }
 }
+
+extension NotyCanvasAndExportTests {
+    @MainActor
+    func testBrowserInkRoundTripsAndIsConsumedExactlyOnce() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = NotyStore(storageDirectoryURL: root)
+        let document = store.createDocument(title: "Web ink", folderID: nil)
+        var manifest = store.currentManifest()
+        manifest.documents[0].pages[0].webStrokes = [NotyWebStroke(id: UUID(), color: "202020", width: 3, points: [NotyWebPoint(x: 10, y: 20), NotyWebPoint(x: 90, y: 80)])]
+        XCTAssertTrue(store.applyCloudManifest(manifest))
+        let pageID = try XCTUnwrap(store.documents.first?.pages.first?.id)
+        let drawing = store.drawing(documentID: document.id, pageID: pageID)
+        XCTAssertEqual(drawing.strokes.count, 1)
+        store.saveDrawing(drawing, documentID: document.id, pageID: pageID)
+        XCTAssertNil(store.documents[0].pages[0].webStrokes)
+        XCTAssertEqual(store.drawing(documentID: document.id, pageID: pageID).strokes.count, 1)
+        try store.refreshCloudInkPreviews(documentID: document.id)
+        let preview = store.assetDirectoryURL(documentID: document.id).appendingPathComponent("InkPreviews/\(pageID.uuidString).png")
+        XCTAssertNotNil(UIImage(contentsOfFile: preview.path))
+    }
+}

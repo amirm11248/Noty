@@ -14,11 +14,13 @@ type Dependencies = {
   createClient: (url: string, key: string, options: { auth: { persistSession: boolean; autoRefreshToken: boolean } }) => AccountClient;
   deleteCloudData?: (userID: string) => Promise<void>;
 };
-const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
+const cors = {'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'authorization, apikey, content-type, x-client-info','Access-Control-Allow-Methods':'POST, OPTIONS'};
+const headers = { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
 const reply = (status: number, message: string) => new Response(JSON.stringify({ message }), { status, headers });
 
 export function makeDeleteAccountHandler(deps: Dependencies) {
   return async (request: Request): Promise<Response> => {
+    if (request.method === 'OPTIONS') return new Response(null,{status:204,headers:cors});
     if (request.method !== 'POST') return reply(405, 'Use POST.');
     const bearer = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
     if (!bearer) return reply(401, 'Sign in to delete your account.');

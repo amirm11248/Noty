@@ -40,7 +40,7 @@ After choosing an iCloud Drive sync folder, optionally paste its sharing URL and
 
 For your own private notes, prefer a private folder or **People You Choose** sharing. If you deliberately use **Anyone with the link → Can make changes**, treat that URL like a secret because anyone who obtains it can modify the shared folder.
 
-The account system is intentionally cross-platform. A future Noty web client can use the same Supabase identity and workspace records. However, an iCloud Drive share URL is not a general-purpose browser storage API; true web editing will require a web-accessible document replica (for example Supabase Storage/database records) linked to the same Noty workspace. The current backend stores metadata, not notebook contents.
+The account now also syncs editable notebooks through the shared Supabase document/folder tables and private Backblaze B2 assets. The Sites companion uses the same account and document format. See `web/README.md` and `SYNC_VALIDATION.md` for the sync contract, implemented web actions and remaining physical-device validation. Install the updated iPad build and let Noty Cloud finish syncing to make existing notebooks and native ink previews available in the browser.
 
 The in-app status confirms when Noty has read or written the selected Files folder. iPadOS and the File Provider control when those changes actually reach iCloud. Before deleting the app or wiping a device, verify the `Noty Sync` (or legacy `Noty Backup`) data is present in Files.
 
