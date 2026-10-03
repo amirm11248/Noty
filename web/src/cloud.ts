@@ -1,6 +1,7 @@
 import { newPage } from "./types";
 import { createClient } from "@supabase/supabase-js";
 import type { Notebook, Folder, Payload } from "./types";
+import { manifestAssets } from "./sync-model.mjs";
 export const cloud = createClient(
   "https://diwtlxvlpiyeownljjpz.supabase.co",
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpd3RseHZscGl5ZW93bmxqanB6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc3NjMzNDMsImV4cCI6MjA3MzMzOTM0M30.A-c0ylufHucKDTuxt5ykiVHjl03cPSzDwYomdaweyNk",
@@ -188,7 +189,7 @@ function mimeForPath(name: string) {
 }
 export async function assetURL(doc: Notebook, name: string) {
   const versions = doc.payload.assetManifest as Record<string, CloudAsset> | undefined;
-  const assets = versions && Object.keys(versions).length ? Object.values(versions) : await listAssets(doc);
+  const assets = versions && Object.keys(versions).length ? manifestAssets(versions) : await listAssets(doc);
   // Native UUID path segments are uppercase; database IDs are lowercase.
   const asset = assets.find(a => a.relative_path.toLowerCase() === name.toLowerCase());
   if (asset) {

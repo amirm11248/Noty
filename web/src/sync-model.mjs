@@ -4,6 +4,7 @@ export function pageSize(page) {
   const size=sizes[page.sizePreset]||sizes.letter;return page.orientation==='landscape'?[size[1],size[0]]:size;
 }
 export function resolveAssetName(doc,page,image){const desired=`Images/${page.id}/${image.fileName}`;return doc.payload.assets?.find(a=>a.toLowerCase()===desired.toLowerCase())||desired;}
+export function manifestAssets(manifest){return Object.entries(manifest||{}).map(([path,ref])=>({...ref,relative_path:path}));}
 export function movePage(pages,id,direction){const list=[...pages],index=list.findIndex(p=>p.id===id),next=index+direction;if(index<0||next<0||next>=list.length||list[next].isCover)return list;[list[index],list[next]]=[list[next],list[index]];return list;}
 export function draftKey(doc){return `noty-draft:${doc.user_id}:${doc.id}`;}
 export function saveDraft(storage,doc,baseRevision){storage.setItem(draftKey(doc),JSON.stringify({document:doc,baseRevision,savedAt:Date.now()}));}
