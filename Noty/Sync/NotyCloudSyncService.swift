@@ -499,6 +499,14 @@ final class NotyCloudSyncService {
     }
 
     private func upload(local: LocalAsset, documentID: UUID, userID: String, account: NotyAccountService) async throws {
+        // Upload a stable file snapshot even if PencilKit replaces the original while awaiting the network.
+        let snapshot = fileManager.temporaryDirectory.appendingPathComponent("noty-upload-\(UUID().uuidString)")
+        try fileManager.copyItem(at: local.url, to: snapshot)
+        defer { try? fileManager.removeItem(at: snapshot) }
+        let digest = try await Task.detached(priority: .utility) { try Self.sha256(fileURL: snapshot) }.value
+        guard digest == local.sha256 else {
+            throw NotyCloudError.transfer("This file changed while preparing its upload. The local edit is retained; sync again.")
+        }
         let signed = try await signedURL(
             action: "presign_upload",
             documentID: documentID,
@@ -512,7 +520,7 @@ final class NotyCloudSyncService {
         request.httpMethod = "PUT"
         request.timeoutInterval = 180
         request.setValue(local.contentType, forHTTPHeaderField: "Content-Type")
-        let (_, response) = try await URLSession.shared.upload(for: request, fromFile: local.url)
+        let (_, response) = try await URLSession.shared.upload(for: request, fromFile: snapshot)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw NotyCloudError.transfer("Upload failed for \(local.relativePath).")
         }
@@ -536,6 +544,7 @@ final class NotyCloudSyncService {
     }
 
     private func download(remote: CloudAssetRow, documentID: UUID, store: NotyStore, account: NotyAccountService) async throws {
+        let revisionAtStart = store.localRevision
         guard let relativePath = Self.safeRelativePath(remote.relative_path) else { throw NotyCloudError.invalidResponse }
         let signed = try await signedURL(
             action: "presign_download",
@@ -555,6 +564,9 @@ final class NotyCloudSyncService {
         }.value
         guard digest == remote.sha256 else { throw NotyCloudError.transfer("Cloud file verification failed for \(relativePath).") }
 
+        guard store.localRevision == revisionAtStart else {
+            throw NotyCloudError.transfer("A local edit arrived while downloading. It was preserved; sync again to reconcile it.")
+        }
         let destination = store.assetDirectoryURL(documentID: documentID).appendingPathComponent(relativePath)
         try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         if fileManager.fileExists(atPath: destination.path) { try fileManager.removeItem(at: destination) }
