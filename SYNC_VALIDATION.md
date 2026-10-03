@@ -20,11 +20,13 @@ An isolated temporary QA account was used; the owner's existing notebook was not
 
 The deletion test exposed an auth-user cascade/tombstone foreign-key bug. `avoid_tombstones_during_account_cascade` fixes it, and the failing case passed on rerun. Both migrations and both updated Edge Functions are deployed.
 
-Local validation: ten web model/import tests, nine account-deletion handler tests and the TypeScript/Vite production build pass. Security advisor findings are existing authenticated GraphQL schema discovery and Auth configuration warnings (password leak protection/MFA); owner row isolation was tested directly. Deno dependency type checking could not fetch registry packages in this environment; deployed Edge Functions executed successfully.
+Local validation: twelve web model/import tests, nine account-deletion handler tests and the TypeScript/Vite production build pass. Regression tests cover native asset manifests whose relative paths exist only as dictionary keys and audio filenames accepted by the native player. Security advisor findings are existing authenticated GraphQL schema discovery and Auth configuration warnings (password leak protection/MFA); owner row isolation was tested directly. Deno dependency type checking could not fetch registry packages in this environment; deployed Edge Functions executed successfully.
+
+GitHub iOS CI built the app for iPad Simulator and passed all 43 integration tests, including the new browser-ink round trip and preview-generation test. [Passing native run](https://github.com/amirm11248/Noty/actions/runs/37130983905). This validates the native code under a simulator; it does not establish physical-device cloud sync with the owner's notebooks.
 
 ## Still requires device validation
 
-The updated iPad app must be built and installed before it can publish native ink previews or consume browser strokes. This Linux environment cannot operate the user's physical iPad or its signed-in native app. The managed browser-control skill was unavailable, so no visual or real-session browser UI test was claimed.
+The updated iPad app must be installed before it can publish native ink previews or consume browser strokes. This Linux environment cannot operate the user's physical iPad or its signed-in native app. The managed browser-control skill was unavailable, so no visual or real-session browser UI test was claimed.
 
 | Check | Evidence still needed |
 | --- | --- |

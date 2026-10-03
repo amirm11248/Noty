@@ -48,7 +48,7 @@ import { newPage, pageText } from "./types";
 import { escapeHTML, sanitizeHTML } from "./html";
 import { zipSync, strToU8 } from "fflate";
 import NativePage from "./NativePage";
-import {movePage, draftKey,saveDraft,readDraft} from "./sync-model.mjs";
+import {movePage, draftKey,saveDraft,readDraft,attachmentAssetPath} from "./sync-model.mjs";
 const PDFPanel = lazy(() => import("./PDFPanel"));
 const htmlForPage = (page: Page) =>
   page.webHTML
@@ -552,7 +552,7 @@ export default function Editor({
   async function attachFile(file:File){
     setUploading(true);
     try{
-      const name=`Attachments/${crypto.randomUUID()}/${file.name.replace(/[/\\]/g,"_")}`;
+      const name=attachmentAssetPath(file.name,file.type.startsWith("audio/"),crypto.randomUUID());
       await uploadAsset(doc.user_id,doc.id,name,file);
       const payload:Payload={...draft.current.payload,assets:[...(draft.current.payload.assets||[]),name]};
       if(file.type.startsWith("audio/"))payload.audioClips=[...((payload.audioClips as any[])||[]),{id:crypto.randomUUID(),title:file.name,fileName:name,duration:0,createdAt:Date.now(),pageID:activeRef.current}];
