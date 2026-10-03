@@ -363,35 +363,53 @@ final class NotyCloudSyncService {
 
     private func localAssets(documentID: UUID, store: NotyStore) async throws -> [LocalAsset] {
         let root = store.assetDirectoryURL(documentID: documentID)
-        guard fileManager.fileExists(atPath: root.path) else { return [] }
-        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
-        guard let enumerator = fileManager.enumerator(
-            at: root,
-            includingPropertiesForKeys: keys,
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
+        let candidates = try Self.localAssetCandidates(root: root)
 
         var result: [LocalAsset] = []
-        for case let url as URL in enumerator {
-            let values = try url.resourceValues(forKeys: Set(keys))
-            guard values.isRegularFile == true else { continue }
-            let relativePath = String(url.path.dropFirst(root.path.count + 1))
-            guard Self.safeRelativePath(relativePath) != nil,
-                  !relativePath.hasPrefix("Handwriting/") else { continue }
+        result.reserveCapacity(candidates.count)
+        for candidate in candidates {
             let digest = try await Task.detached(priority: .utility) {
-                try Self.sha256(fileURL: url)
+                try Self.sha256(fileURL: candidate.url)
             }.value
-            let contentType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+            let contentType = UTType(filenameExtension: candidate.url.pathExtension)?.preferredMIMEType
+                ?? "application/octet-stream"
             result.append(LocalAsset(
-                relativePath: relativePath,
-                url: url,
+                relativePath: candidate.relativePath,
+                url: candidate.url,
                 sha256: digest,
-                byteSize: Int64(values.fileSize ?? 0),
+                byteSize: candidate.byteSize,
                 contentType: contentType,
-                modifiedAt: values.contentModificationDate ?? .distantPast
+                modifiedAt: candidate.modifiedAt
             ))
         }
         return result
+    }
+
+    nonisolated private static func localAssetCandidates(root: URL) throws -> [LocalAssetCandidate] {
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: root.path) else { return [] }
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+        guard let enumerator = manager.enumerator(
+            at: root,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        var candidates: [LocalAssetCandidate] = []
+        for case let url as URL in enumerator {
+            let values = try url.resourceValues(forKeys: keys)
+            guard values.isRegularFile == true else { continue }
+            let relativePath = String(url.path.dropFirst(root.path.count + 1))
+            guard safeRelativePath(relativePath) != nil,
+                  !relativePath.hasPrefix("Handwriting/") else { continue }
+            candidates.append(LocalAssetCandidate(
+                relativePath: relativePath,
+                url: url,
+                byteSize: Int64(values.fileSize ?? 0),
+                modifiedAt: values.contentModificationDate ?? .distantPast
+            ))
+        }
+        return candidates
     }
 
     private func upload(local: LocalAsset, documentID: UUID, userID: String, account: NotyAccountService) async throws {
@@ -657,6 +675,13 @@ private struct LocalAsset {
     let sha256: String
     let byteSize: Int64
     let contentType: String
+    let modifiedAt: Date
+}
+
+private struct LocalAssetCandidate {
+    let relativePath: String
+    let url: URL
+    let byteSize: Int64
     let modifiedAt: Date
 }
 
