@@ -269,7 +269,7 @@ final class NotyCloudSyncService {
                 // Trashing is reversible on every device; never purge B2 files here.
                 try store.stageCloudTrashAssets(id: id)
                 _ = try await syncAssets(document: item.document, remoteAssets: remoteAssets.filter { $0.document_id == id }, authority: .local, store: store, userID: userID, account: account)
-                try await upsert(document: item.document, existing: remoteDocumentMap[id], userID: userID, account: account, trashedAt: deletedAt)
+                try await upsert(document: item.document, existing: remoteDocumentMap[id], userID: userID, account: account, store: store, trashedAt: deletedAt)
             } else if remoteDocumentMap[id]?.trashed_at != nil {
                 if store.trashItems.contains(where: { $0.id == id }) { continue }
                 if let row = remoteDocumentMap[id], let changed = Self.parseDate(row.updated_at), deletedAt > changed {
@@ -304,7 +304,7 @@ final class NotyCloudSyncService {
             // Upload binaries before publishing page metadata that references them.
             try store.refreshCloudInkPreviews(documentID: id)
             _ = try await syncAssets(document: document, remoteAssets: remoteAssets.filter { $0.document_id == id }, authority: .local, store: store, userID: userID, account: account)
-            try await upsert(document: document, existing: remoteDocumentMap[id], userID: userID, account: account)
+            try await upsert(document: document, existing: remoteDocumentMap[id], userID: userID, account: account, store: store)
             if let checkpoint = checkpoints[id], var updated = documents[id] {
                 updated.updatedAt = checkpoint.localUpdatedAt
                 documents[id] = updated
@@ -638,7 +638,7 @@ final class NotyCloudSyncService {
         }
     }
 
-    private func upsert(document: NotyDocument, existing: CloudDocumentRow?, userID: String, account: NotyAccountService, trashedAt: Date? = nil) async throws {
+    private func upsert(document: NotyDocument, existing: CloudDocumentRow?, userID: String, account: NotyAccountService, store: NotyStore, trashedAt: Date? = nil) async throws {
         var payload = CloudDocumentPayload(
             pages: document.pages,
             cover: document.cover,
