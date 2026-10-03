@@ -397,6 +397,30 @@ final class NotyAccountService {
         return URL(string: sharedFolderLink)
     }
 
+    var accountUserID: String? { session?.userID }
+
+    /// Authenticated access to the same Supabase project used by the web app.
+    /// The caller never receives the stored refresh token or any server secret.
+    func backendData(
+        path: String,
+        method: String = "GET",
+        jsonBody: Any? = nil,
+        prefer: String? = nil
+    ) async throws -> Data {
+        guard isAuthenticated else { throw NotyAccountError.notSignedIn }
+        var request = baseRequest(path: path, method: method)
+        if let prefer {
+            request.setValue(prefer, forHTTPHeaderField: "Prefer")
+        }
+        if let jsonBody {
+            guard JSONSerialization.isValidJSONObject(jsonBody) else {
+                throw NotyAccountError.server("Noty could not encode the cloud request.")
+            }
+            request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
+        }
+        return try await authorizedData(request)
+    }
+
     func bootstrap(force: Bool = false) async {
         if didBootstrap && !force { return }
         didBootstrap = true
