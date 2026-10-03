@@ -68,15 +68,27 @@ final class NotyAppDelegate: NSObject, UIApplicationDelegate {
         let work = Task { @MainActor in
             let store = NotyStore()
             let oneDrive = OneDriveService()
+            let account = NotyAccountService()
+            let cloud = NotyCloudSyncService()
+
+            await account.bootstrap()
+            let hasNotyCloudWork = account.isAuthenticated
             let hasICloudWork = store.hasICloudMirror
             let hasOneDriveWork = oneDrive.isConnected
 
-            // A processing request is one-shot. Re-arm it while cloud backup is
-            // configured so iPadOS has another opportunity after this run.
+            // A processing request is one-shot. Re-arm it while any cloud
+            // destination is configured so iPadOS can retry after this run.
             NotyBackgroundSyncScheduler.scheduleIfNeeded(
-                hasWork: hasICloudWork || hasOneDriveWork
+                hasWork: hasNotyCloudWork || hasICloudWork || hasOneDriveWork
             )
 
+            if hasNotyCloudWork {
+                await cloud.sync(store: store, account: account)
+            }
+            if Task.isCancelled {
+                backgroundTask.setTaskCompleted(success: false)
+                return
+            }
             if hasOneDriveWork {
                 await oneDrive.syncAllPDFs(store: store)
             }
@@ -88,10 +100,11 @@ final class NotyAppDelegate: NSObject, UIApplicationDelegate {
                 await store.syncICloudMirror()
             }
 
+            let cloudFailed = hasNotyCloudWork && cloud.lastError != nil
             let iCloudFailed = hasICloudWork && store.syncStatus.localizedCaseInsensitiveContains("failed")
             let oneDriveFailed = hasOneDriveWork && oneDrive.lastError != nil
             backgroundTask.setTaskCompleted(
-                success: !Task.isCancelled && !iCloudFailed && !oneDriveFailed
+                success: !Task.isCancelled && !cloudFailed && !iCloudFailed && !oneDriveFailed
             )
         }
 
