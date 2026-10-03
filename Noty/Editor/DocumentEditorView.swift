@@ -92,13 +92,15 @@ struct DocumentEditorView: View {
 
 
     var body: some View {
-        Group {
-            if let document {
-                editor(document)
-            } else {
-                ContentUnavailableView("Document unavailable", systemImage: "doc.questionmark")
+        AnyView(
+            Group {
+                if let document {
+                    editor(document)
+                } else {
+                    ContentUnavailableView("Document unavailable", systemImage: "doc.questionmark")
+                }
             }
-        }
+        )
         .background(EditorPalette.workspace.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden()
