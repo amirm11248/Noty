@@ -329,7 +329,14 @@ enum PaperTemplateGeometry {
     }
     static func labels(_ template: NotyPageTemplate, size: CGSize) -> [(String, CGPoint)] {
         switch template {
-        case .weeklyPlanner: return [("WEEK OF", CGPoint(x: 24, y: 30))] + ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"].enumerated().map { ($0.element, CGPoint(x: 32, y: 88 + CGFloat($0.offset) * (size.height - 104) / 7)) }
+        case .weeklyPlanner:
+            let heading: [(String, CGPoint)] = [("WEEK OF", CGPoint(x: 24, y: 30))]
+            let dayNames = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+            let rowHeight = (size.height - 104) / 7
+            let days: [(String, CGPoint)] = dayNames.enumerated().map { index, name in
+                (name, CGPoint(x: 32, y: 88 + CGFloat(index) * rowHeight))
+            }
+            return heading + days
         case .dailyPlanner: return [("TODAY", CGPoint(x: 24, y: 30)), ("SCHEDULE", CGPoint(x: 24, y: 60)), ("PRIORITIES", CGPoint(x: size.width * 0.63 + 12, y: 60)), ("NOTES", CGPoint(x: size.width * 0.63 + 12, y: size.height * 0.5 + 16))]
         case .cornell: return [("TOPIC / DATE", CGPoint(x: 24, y: 26)), ("SUMMARY", CGPoint(x: 24, y: size.height - 94))]
         case .checklist: return [("TO DO", CGPoint(x: 24, y: 30))]
