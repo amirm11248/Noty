@@ -23,7 +23,7 @@
     "@tiptap/starter-kit": "3.7.2",
     "fflate": "0.8.2",
     "lucide-react": "0.468.0",
-    "mammoth": "1.10.0",
+    "mammoth": "1.11.0",
     "pdfjs-dist": "5.4.296",
     "react": "19.1.1",
     "react-dom": "19.1.1"
