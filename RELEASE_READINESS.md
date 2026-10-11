@@ -1,5 +1,13 @@
 # Noty release readiness
 
+Repository licensing and setup updated 2026-10-11: original work uses the
+standard [MIT License](LICENSE), and the maintainer's current hobby purpose is
+recorded in [PROJECT_STATUS.md](PROJECT_STATUS.md). Third-party notices,
+contribution guidance, a source-level privacy notice, and private security
+reporting are documented. These repository changes do not certify a deployed
+cloud service or an App Store release; the device and operator steps below
+remain applicable.
+
 Updated 2026-10-02. This is a native iOS/iPadOS app; the localhost browser preview displays the actual iPad app.
 
 ## Implemented for this release

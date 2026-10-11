@@ -1,5 +1,11 @@
 # noty
 
+Personal hobby project by [Malik Abdullah Amir](https://github.com/amirm11248),
+currently developed for learning and personal use without monetization.
+Original code and documentation are licensed under [MIT](LICENSE). See
+[project status](PROJECT_STATUS.md) for the current purpose and what to review
+if that purpose changes.
+
 A minimal, offline-first Apple-device notebook for class notes, study sessions, and writing directly on PDFs. Built with SwiftUI, PencilKit, and PDFKit. The app keeps a local editable library, can synchronize that library through a user-selected iCloud Drive/Files folder, and now has a real Supabase-backed Noty account for cross-device workspace discovery. It can also keep rendered PDF copies in a OneDrive folder exposed through Files.
 
 ## Open and run
@@ -56,3 +62,27 @@ Cloud execution is still best effort: a `BGProcessingTask` gives iPadOS another 
 ## Release validation
 
 See [RELEASE_READINESS.md](RELEASE_READINESS.md) for verified checks and the remaining device and App Store submission steps. [FEATURE_STATUS.md](FEATURE_STATUS.md) records the implemented features and remaining differences from Goodnotes. The browser preview mirrors the native iPad app; it is not a separate web editor.
+
+## License
+
+Copyright (c) 2026 Malik Abdullah Amir. Original Noty code, documentation, and
+original project assets are licensed under the standard [MIT License](LICENSE),
+including its warranty disclaimer. MIT permits commercial reuse; the
+maintainer's current hobby purpose adds no restriction to the license.
+
+Bundled libraries, dependencies, fonts, and external material retain their own
+licenses and copyright notices. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+MIT does not determine German business or tax status; see
+[PROJECT_STATUS.md](PROJECT_STATUS.md) before introducing monetization.
+
+## Privacy and security
+
+The [privacy notice](PRIVACY.md) describes local files, account authentication,
+Noty Cloud, browser storage, and optional Files/iCloud/OneDrive backups. Signing
+in synchronizes notebook data to Supabase and private Backblaze B2 storage.
+The document is a technical source notice; a hosted service needs disclosures
+matching its actual operator and deployment.
+
+Report vulnerabilities privately using the instructions in [SECURITY.md](SECURITY.md).
+Use fabricated notes in public issues and pull requests. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for contribution and licensing guidance.

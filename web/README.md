@@ -13,3 +13,12 @@ Both clients use immutable content-hashed B2 object keys and store an `assetMani
 PDF pages are rendered with their native annotations on the same canvas. DOCX import extracts editable text and keeps the original file; it does not promise identical Word pagination. The web editor can add and undo web ink; existing native PencilKit ink is displayed as a preview and is edited on iPad.
 
 Deployment identity is managed separately by the existing Sites checkout. See `../SYNC_VALIDATION.md` for the exact tested scope and outstanding physical-device checks.
+
+## License and privacy
+
+Original companion code uses the root [MIT License](../LICENSE). Packages and
+fonts retain the terms in [third-party notices](../THIRD_PARTY_NOTICES.md).
+The maintainer's current personal hobby purpose is recorded in
+[PROJECT_STATUS.md](../PROJECT_STATUS.md). The technical data-flow notice is
+[PRIVACY.md](../PRIVACY.md); a public service must also publish its actual
+operator and privacy disclosures.
