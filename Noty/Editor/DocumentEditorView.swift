@@ -29,8 +29,6 @@ struct DocumentEditorView: View {
     @State private var isAddingPage = false
     @State private var isEditingCover = false
     @State private var isShowingStudyTools = false
-    @State private var isShowingAudio = false
-    @State private var lectureAudio = LectureAudioController()
     @State private var isShowingImageImporter = false
     @State private var croppingImage: NotyPageImage?
     @State private var isSearching = false
@@ -57,7 +55,7 @@ struct DocumentEditorView: View {
     @State private var isShowingThumbnails = true
     @State private var isShowingRename = false
     @State private var renameTitle = ""
-    @State private var shareURL: URL?
+    @State private var exportedURL: URL?
     @State private var exportError: String?
     @State private var sourcePDF: PDFDocument?
     @State private var recognitionMessage: String?
@@ -103,8 +101,8 @@ struct DocumentEditorView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden()
         .onAppear(perform: selectInitialPage)
-        .onDisappear { canvasSessions.flushAll(); store.removeUnusedPhotoAssets(documentID: documentID); lectureAudio.stopRecording(); lectureAudio.stopPlayback() }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { canvasSessions.flushAll() }; if phase == .background { lectureAudio.stopRecording(); lectureAudio.stopPlayback() } }
+        .onDisappear { canvasSessions.flushAll(); store.removeUnusedPhotoAssets(documentID: documentID) }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { canvasSessions.flushAll() } }
         .onChange(of: selectedPageID) { _, _ in
             activeToolSettings = nil
         }
@@ -143,9 +141,6 @@ struct DocumentEditorView: View {
                     do { try store.updateCover(documentID: documentID, cover: cover, imageData: imageData) } catch { imageImportError = error.localizedDescription }
                 }
             }
-        }
-        .sheet(isPresented: $isShowingAudio) {
-            LectureAudioSheet(documentID: documentID, pageID: selectedPage?.id, store: store, controller: lectureAudio) { pageID in navigate(to: pageID) }
         }
         .sheet(isPresented: $isShowingStudyTools) {
             StudyToolsSheet(documentID: documentID, store: store, selectedText: selectedPage?.textBoxes.first(where: { $0.id == selectedTextBoxID })?.text)
@@ -223,12 +218,13 @@ struct DocumentEditorView: View {
         } message: {
             Text(recognitionMessage ?? "")
         }
-        .sheet(item: Binding(
-            get: { shareURL.map(SharedFile.init(url:)) },
-            set: { shareURL = $0?.url }
-        )) { sharedFile in
-            ActivityViewController(items: [sharedFile.url])
-                .presentationDetents([.medium, .large])
+        .alert("Saved on this device", isPresented: Binding(
+            get: { exportedURL != nil },
+            set: { if !$0 { exportedURL = nil } }
+        )) {
+            Button("OK") { exportedURL = nil }
+        } message: {
+            Text("\(exportedURL?.lastPathComponent ?? "Export") was saved in Files → On My iPhone or On My iPad → noty → Noty Exports.")
         }
     }
 
@@ -457,7 +453,6 @@ struct DocumentEditorView: View {
                 Section(document.title) {
                     Button("Rename", systemImage: "pencil") { renameTitle = document.title; isShowingRename = true }
                     if document.kind != .whiteboard { Button("Edit cover", systemImage: "book.closed") { isEditingCover = true } }
-                    Button("Lecture audio", systemImage: "mic") { isShowingAudio = true }
                     Button("Study tools", systemImage: "rectangle.on.rectangle") { isShowingStudyTools = true }
                 }
             } label: {
@@ -570,7 +565,7 @@ struct DocumentEditorView: View {
             Button("Arrange pages…", systemImage: "arrow.up.arrow.down") { canvasSessions.flushAll(); isArrangingPages = true }
             Button("Export this page as PDF", systemImage: "square.and.arrow.up") {
                 canvasSessions.flushAll()
-                do { shareURL = try NotyExportService.exportPDF(documentID: documentID, store: store, selectedPageIDs: [page.id]) }
+                do { exportedURL = try NotyExportService.exportPDF(documentID: documentID, store: store, selectedPageIDs: [page.id]) }
                 catch { exportError = error.localizedDescription }
             }
             Button("Delete page", systemImage: "trash", role: .destructive) { canvasSessions.flushAll(); store.deletePage(documentID: documentID, pageID: page.id) }.disabled(page.isCover)
@@ -829,7 +824,7 @@ struct DocumentEditorView: View {
                         Label("Formatting", systemImage: "textformat")
                     }
                     .accessibilityLabel("Text formatting")
-                    Button { UIPasteboard.general.string = textBox.text } label: { Label("Copy text", systemImage: "doc.on.doc") }.accessibilityLabel("Copy text")
+                    Button { UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: textBox.text]], options: [.localOnly: true]) } label: { Label("Copy text", systemImage: "doc.on.doc") }.accessibilityLabel("Copy text")
                     Button { duplicateTextBox(textBox, page: page) } label: { Label("Duplicate text box", systemImage: "plus.square.on.square") }.accessibilityLabel("Duplicate text box")
 
                     Button {
@@ -1106,7 +1101,8 @@ struct DocumentEditorView: View {
     }
 
     private func copyImage(_ image: NotyPageImage, page: NotyPage) {
-        UIPasteboard.general.image = store.pageImage(documentID: documentID, pageID: page.id, image: image)
+        guard let data = store.pageImage(documentID: documentID, pageID: page.id, image: image)?.pngData() else { return }
+        UIPasteboard.general.setItems([[UTType.png.identifier: data]], options: [.localOnly: true])
     }
     private func pasteObject() {
         guard let page = selectedPage else { return }
@@ -1250,7 +1246,7 @@ struct DocumentEditorView: View {
     private func exportPDF(selectedPageIDs: Set<UUID>? = nil) {
         canvasSessions.flushAll()
         do {
-            shareURL = try NotyExportService.exportPDF(documentID: documentID, store: store, selectedPageIDs: selectedPageIDs)
+            exportedURL = try NotyExportService.exportPDF(documentID: documentID, store: store, selectedPageIDs: selectedPageIDs)
         } catch {
             exportError = error.localizedDescription
         }
@@ -1260,7 +1256,7 @@ struct DocumentEditorView: View {
         canvasController.flush()
         guard let page = selectedPage else { return }
         do {
-            shareURL = try NotyExportService.exportPageImage(documentID: documentID, pageID: page.id, store: store)
+            exportedURL = try NotyExportService.exportPageImage(documentID: documentID, pageID: page.id, store: store)
         } catch {
             exportError = error.localizedDescription
         }
@@ -2449,21 +2445,6 @@ private struct EditorToolbarButtonStyle: ButtonStyle {
             )
             .contentShape(Rectangle())
     }
-}
-
-private struct SharedFile: Identifiable {
-    let url: URL
-    var id: String { url.absoluteString }
-}
-
-private struct ActivityViewController: UIViewControllerRepresentable {
-    let items: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ controller: UIActivityViewController, context: Context) { }
 }
 
 private extension NotyDocumentKind {

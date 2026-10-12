@@ -21,6 +21,7 @@ final class DOCXPreviewPDFSession: NSObject, WKNavigationDelegate, WKScriptMessa
             self.continuation = continuation
 
             let configuration = WKWebViewConfiguration()
+            configuration.websiteDataStore = .nonPersistent()
             let contentController = WKUserContentController()
             contentController.add(self, name: Self.messageHandlerName)
             contentController.addUserScript(WKUserScript(
@@ -80,6 +81,11 @@ final class DOCXPreviewPDFSession: NSObject, WKNavigationDelegate, WKScriptMessa
                 )))
             }
         }
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        // The renderer may open only its bundled local page, never an external link.
+        decisionHandler(navigationAction.request.url?.isFileURL == true ? .allow : .cancel)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -309,10 +315,11 @@ final class DOCXPreviewPDFSession: NSObject, WKNavigationDelegate, WKScriptMessa
         return slices
     }
 
-    private static var html: String {
+    static var html: String {
         """
         <!doctype html>
         <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data: blob:; media-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
         <style>html,body{margin:0;padding:0;background:#fff}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}</style>
         </head><body><div id="docx-output"></div></body></html>
         """

@@ -277,7 +277,6 @@ struct NotyDocument: Identifiable, Codable, Hashable {
     var updatedAt: Date
     var cover: NotyNotebookCover?
     var studyCards: [NotyStudyCard]?
-    var audioClips: [NotyAudioClip]?
 
     init(
         id: UUID = UUID(),
@@ -288,8 +287,7 @@ struct NotyDocument: Identifiable, Codable, Hashable {
         createdAt: Date = .now,
         updatedAt: Date = .now,
         cover: NotyNotebookCover? = nil,
-        studyCards: [NotyStudyCard]? = nil,
-        audioClips: [NotyAudioClip]? = nil
+        studyCards: [NotyStudyCard]? = nil
     ) {
         self.id = id
         self.title = title
@@ -300,7 +298,6 @@ struct NotyDocument: Identifiable, Codable, Hashable {
         self.updatedAt = updatedAt
         self.cover = cover
         self.studyCards = studyCards
-        self.audioClips = audioClips
     }
 }
 
@@ -325,8 +322,7 @@ enum NotyStoreError: LocalizedError {
     case invalidPDF
     case invalidOfficeDocument(String)
     case invalidImage
-    case iCloudFolderUnavailable
-    case invalidMirrorSnapshot(String)
+    case localFileRequired
 
     var errorDescription: String? {
         switch self {
@@ -346,10 +342,8 @@ enum NotyStoreError: LocalizedError {
             return message
         case .invalidImage:
             return "The selected image could not be opened."
-        case .iCloudFolderUnavailable:
-            return "Noty could not access the selected sync folder. Select the same folder again in Files."
-        case .invalidMirrorSnapshot(let message):
-            return "The Noty sync data could not be read: \(message)"
+        case .localFileRequired:
+            return "Choose a local file to import into Noty."
         }
     }
 }
@@ -370,13 +364,4 @@ struct NotyStudyCard: Identifiable, Codable, Hashable {
     var id = UUID()
     var question: String
     var answer: String
-}
-
-struct NotyAudioClip: Identifiable, Codable, Hashable {
-    var id = UUID()
-    var title: String
-    var fileName: String
-    var duration: Double
-    var createdAt: Date = .now
-    var pageID: UUID?
 }

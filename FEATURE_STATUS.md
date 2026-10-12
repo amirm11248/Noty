@@ -1,6 +1,6 @@
 # Feature status
 
-Audit date: 2026-10-02
+Audit date: 2026-10-12
 
 This file tracks the gap between the current native iPad app and the larger Goodnotes-style wishlist. A checked item means there is a real implementation in the app, not only a button or placeholder.
 
@@ -53,61 +53,26 @@ This file tracks the gap between the current native iPad app and the larger Good
 - [x] Pencil-only drawing by default, optional finger drawing, dedicated pan tool
 - [x] Weekly/daily planner, Cornell, music and checklist templates with matching export geometry
 - [x] Editable study cards, shuffled review sessions and a focus timer
-- [x] Lecture recording, playback speed, seeking, sharing and links to the starting page
 - [x] On-device privacy information and privacy manifest
 - [x] Adaptive launch-screen configuration and a minimal frosted notebook App Store icon, encoded as opaque RGB
-- [x] Password-confirmed account deletion, backed by a deployed authenticated server function
 - [x] Restorable in-app Trash with permanent-delete / empty-trash actions
 - [x] Full annotated PDF export and selected-page PDF export in notebook order
 - [x] High-resolution current-page PNG export
 - [x] Full-screen presenter view with swipe/page controls, laser pointer, hide-screen mode and clean audience chrome
 
-## Cloud durability
+## Local-only repository version
 
-### Sync with Folder editable library
+- [x] Local editable library, assets, and study cards
+- [x] Existing local manifest and Trash compatibility
+- [x] Local PDF/PNG exports in On My iPhone/iPad → noty → Noty Exports
+- [x] Library, originals, and exports excluded from system backups
+- [x] Device-local clipboard writes
+- [x] Offline Word conversion with external resources and network connections blocked
+- [x] Legacy credentials and folder grants removed locally during upgrade
+- [x] Accounts, cloud-folder mirroring, background upload tasks, and backend deployment files removed
+- [x] Audio recording, playback, audio export, and microphone permission removed; older notebook and Trash metadata remains readable
 
-- [x] User selects a writable folder through the iOS Files picker
-- [x] New setups use a `Noty Sync` subfolder
-- [x] Existing `Noty Backup` folders remain readable for migration compatibility
-- [x] Directory permission is persisted with the iOS directory-bookmark flow
-- [x] Stale bookmarks are refreshed when possible
-- [x] Bidirectional manifest merge for folders/documents/deletions
-- [x] Versioned editable snapshots include manifest, imported PDFs/originals and drawing assets
-- [x] Tombstones prevent intentionally deleted documents from returning
-- [x] Foreground edit debounce and foreground/scene-transition sync
-- [x] `BGProcessingTask` retry scheduling
-- [x] Real Noty email/password accounts through Supabase Auth
-- [x] Auth session persisted securely in the device Keychain
-- [x] Postgres-backed per-user sync profile for iCloud/shared-folder link + folder name
-- [x] Row Level Security restricts each profile to its signed-in user
-- [x] A second device can recover workspace metadata after signing into the same Noty account
-- [x] Recovery and legacy-folder regression tests
-- [ ] Zero-tap Files permission transfer between devices — intentionally impossible with iOS security-scoped folder access
-- [ ] Same-document collaborative merge. Current document conflicts use document-level timestamp resolution rather than Google-Docs-style operation merging.
-
-iOS requires every device to approve external Files-folder access once. The Noty backend can synchronize discovery metadata, but Apple does not allow the security-scoped directory grant itself to be copied between devices.
-
-
-### OneDrive PDF mirror
-
-- [x] Works with the official OneDrive Files provider without storing Microsoft credentials
-- [x] User-selected writable OneDrive folder survives relaunch through the iOS directory-bookmark flow
-- [x] Renders the latest annotated document to PDF
-- [x] Skips unchanged documents
-- [x] Handles renamed documents
-- [x] Keeps previously exported PDFs after a Noty document is deleted as a recovery copy
-- [x] Foreground edit debounce and foreground/scene-transition sync
-- [x] `BGProcessingTask` retry opportunities
-- [x] Relaunch-persistence regression test
-
-This is intentionally Files-provider based rather than Microsoft Graph OAuth. That avoids requiring an Azure application ID and school-tenant consent. The OneDrive provider and iPadOS control the eventual network upload.
-
-## Cross-platform backend roadmap
-
-- [x] Cross-platform Noty account identity
-- [x] Backend workspace metadata
-- [ ] Web document replica / Supabase Storage layer. iCloud Drive links alone do not expose Noty's editable package format as a general browser API.
-- [ ] Web editor/client using the same Noty account
+Cloud storage, account creation, automatic sync, and server-side user data storage are outside the scope of this repository version.
 
 ## Still missing for full Goodnotes-level parity
 
@@ -128,15 +93,12 @@ These are not implemented and should not be advertised as finished:
 - [ ] Collaboration and shared live editing
 - [ ] Marketplace/template store
 
-## Validation on 2026-10-02
+## Validation
 
-- The editor update passed a full 41-test simulator run and eight focused follow-up tests covering continuous-page geometry, whiteboard growth and persistence, selected-page exports, cropped whiteboard exports and undo after canvas expansion. Browser simulator checks cover light-mode styling, page flyout menus, sidebar swipes and the selected-page share flow.
-- All 29 native integration tests pass for PDF/DOCX import, retained originals, ink/text/image persistence, exports, trash recovery, cover migration, folder customization, study cards, cropping, rotated photo orientation, undo, editable backup recovery and OneDrive PDF mirroring. A native text-input test verifies focus, Unicode insertion and underline formatting. New lasso tests cover mixed selections, filters, rotated-photo geometry, erased ink gaps, pressure/path preservation, proportional text spacing, grouped undo and cross-document paste with original photo bytes and failure cleanup. Debug build/launch and an unsigned arm64 iOS Release archive succeed; an earlier unsigned Release simulator build also passed.
-- The backup timestamp format now preserves millisecond revisions, with backward decoding of older ISO timestamps; unchanged sync reuses a snapshot.
-- Word conversion uses a printed-page-sized viewport independent of the app's Split View width and preserves physical paper dimensions. Imported lecture PDFs retain custom sizes and displayed rotation.
-- Account deletion has eight passing handler tests covering authentication, password confirmation, identity matching, session revocation and failures. No real user's account was deleted for testing.
-- Physical Apple Pencil feel, microphone interruptions, actual cloud-provider uploads and signed-device installation require device checks before public release.
+The native suite covers PDF/DOCX import, retained originals, ink/text/image persistence, exports, Trash recovery, cover migration, folder customization, study cards, cropping, rotated photo orientation, undo, whiteboards, lasso selections, handwriting, and typed/PDF library search. Local-only regressions cover legacy folder grants and recording metadata, local PDF/PNG output, backup exclusion, remote URL rejection, and external Word resources. See `RELEASE_READINESS.md` for which checks have been run on this version.
+
+Physical Apple Pencil feel, camera behavior, and signed-device installation still require device checks before public release.
 
 ## CI
 
-`.github/workflows/ios-ci.yml` builds the iPad app target and runs the native integration suite on GitHub Actions. Cloud/provider behavior still needs physical-iPad testing because simulator/local-folder tests cannot reproduce every iCloud Drive or OneDrive File Provider state.
+`.github/workflows/ios-ci.yml` builds the iPad app target and runs the native integration suite on GitHub Actions. No runtime backend setup or service credentials are required.

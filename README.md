@@ -1,12 +1,11 @@
 # noty
 
-A minimal, offline-first Apple-device notebook for class notes, study sessions, and writing directly on PDFs. Built with SwiftUI, PencilKit, and PDFKit. The app keeps a local editable library, can synchronize that library through a user-selected iCloud Drive/Files folder, and now has a real Supabase-backed Noty account for cross-device workspace discovery. It can also keep rendered PDF copies in a OneDrive folder exposed through Files.
-
+A local-only Apple-device notebook for class notes, study sessions, and writing directly on PDFs. Built with SwiftUI, PencilKit, and PDFKit. This repository version has no account system, backend connection, cloud storage, or automatic sync. Notebooks, photos, and study cards stay on the device.
 ## Open and run
 
 Open `Noty.xcodeproj` in Xcode, choose the **Noty** scheme and an iPhone/iPad simulator or device, then Run. The project targets iOS/iPadOS 18 or later. If you change `project.yml`, run `xcodegen generate` before opening Xcode again. The generated project is already included, so XcodeGen is not needed just to build it.
 
-For installation on a physical iPad, select your Apple team in Xcode under **Signing & Capabilities**. Free Apple Personal Team provisioning expires after seven days; keep the cloud backup enabled and verify the files appear in iCloud Drive before relying on them for recovery.
+For installation on a physical device, select your Apple team in Xcode under **Signing & Capabilities**. Keep your own local exports before uninstalling Noty or erasing the device; this version has no cloud recovery.
 
 ## Using noty
 
@@ -21,37 +20,30 @@ For installation on a physical iPad, select your Apple team in Xcode under **Sig
 - Use the three-dot menu to show the native ruler or toggle **Draw and hold to perfect shapes**. Pause for a moment at the end of a line, rectangle, triangle or ellipse, before lifting, to replace it with a precise shape. Undo reverses the correction.
 - Open **Search library & notebooks** in the sidebar to find titles, typed notes, handwriting and PDF text. Each result opens its matching page. Handwriting is recognized automatically on-device after edits; unfinished indexing resumes when you reopen the app or search.
 - Select ink, text and photos together with a freehand or rectangular lasso. Move or resize the group, cut/copy/paste it between pages or notebooks, duplicate or delete it, and undo the entire action once. Tap the lasso again to choose selection filters.
-- Record lectures while writing, adjust playback speed, share clips and jump to the page where recording began. Recording stops when you leave the notebook or the app enters the background.
 - Use the notebook’s study tools for flashcards and timed focus sessions.
 - Scroll continuously through notebook pages. Swipe the page sidebar left to hide it and swipe in from the left edge to show it. Each thumbnail has a three-dot menu with Design, Color and Size flyouts, bookmarks, duplication and moving controls; **Arrange pages** also provides reorder handles. Add pages using the current paper or choose a different design. Deleted documents move to **Trash**, where they can be restored or permanently removed.
 - Present a document full-screen with swipe/page navigation, an on-screen laser pointer, hidden controls, and a temporary black-screen mode.
 - Export the full document as a **PDF** or the current page as a high-resolution **PNG** from the top-right document menu. Choose **Export selected pages** to select the pages included in a PDF; their notebook order is retained. Exports remain in **On My iPad → noty → Noty Exports**.
 - A modern `.docx` is rendered offline to PDF when possible. If its layout cannot be rendered, noty uses a text conversion and tells you that formatting was simplified. It always retains the original file. Legacy `.doc` cannot be converted reliably offline; noty retains it and creates an editable explanation page. For exact legacy Word layout, export a PDF from Word or Pages first.
 
-## Syncing your library
+## Local storage and privacy
 
-Open **Settings → Sync with Folder** and choose a writable folder in Files. For multi-device use, choose an iCloud Drive folder and select that same folder on each device. New setups use a `Noty Sync` subfolder; existing `Noty Backup` folders remain compatible. Noty stores versioned editable document packages there, merges newer changes into the local library, keeps deletion tombstones, saves after edits, checks again when the app becomes active, and requests iPadOS background-processing retry opportunities.
+- The editable library lives in the app's local `Application Support/Noty` directory. Existing local notebooks continue to load after upgrading.
+- Imported originals are also available in **Files → On My iPhone/iPad → noty → Noty Imports**.
+- PDF and PNG exports are saved directly in **Files → On My iPhone/iPad → noty → Noty Exports**. The app confirms the filename after saving; it does not open a sharing or cloud-destination picker.
+- The app's Application Support and Documents directories are excluded from system backups, including older local export caches. Copy any files you want to keep to your own local storage before removing the app.
+- There are no sign-in, signup, account deletion, cloud-folder, or background-upload features, and no backend credentials or deployment files are needed.
+- iCloud folder sync and CloudKit integration are removed. Noty cannot select an iCloud destination or save changes to it; local app files are excluded from system backups.
+- Audio recording, playback, and audio export are removed, and the app does not request microphone access. Older notebooks and Trash entries remain readable; their obsolete recording metadata is ignored. Existing local recording files are not deleted by this change.
+- Old local account credentials and folder grants are discarded on upgrade without contacting their former services. Existing external copies are left in place.
+- Word conversion runs with bundled resources, an ephemeral WebKit data store, and a policy that blocks remote resources and network requests. Copied page objects, text, and images use a device-local clipboard.
+- The app has no advertising, analytics, or remote data collection. Camera and photo access are used only for the features you choose.
 
-### Noty account + setup on another device
-
-Noty now has a real account backend using **Supabase Auth + Postgres**. Create an account or sign in under **Settings → Noty Account**. Authentication sessions are stored in the device Keychain, while Postgres stores the account's sync-workspace metadata (currently the iCloud/shared-folder link and folder display name). Row Level Security restricts each account to its own profile row.
-
-After choosing an iCloud Drive sync folder, optionally paste its sharing URL and tap **Save link to my Noty account**. On another iPhone or iPad, sign into the same Noty account: the workspace link is downloaded from the backend automatically. Open the saved link if needed, then choose that folder once in Files. iOS intentionally makes the actual security-scoped Files permission device-local, so no backend can silently transfer that grant between devices.
-
-For your own private notes, prefer a private folder or **People You Choose** sharing. If you deliberately use **Anyone with the link → Can make changes**, treat that URL like a secret because anyone who obtains it can modify the shared folder.
-
-The account system is intentionally cross-platform. A future Noty web client can use the same Supabase identity and workspace records. However, an iCloud Drive share URL is not a general-purpose browser storage API; true web editing will require a web-accessible document replica (for example Supabase Storage/database records) linked to the same Noty workspace. The current backend stores metadata, not notebook contents.
-
-The in-app status confirms when Noty has read or written the selected Files folder. iPadOS and the File Provider control when those changes actually reach iCloud. Before deleting the app or wiping a device, verify the `Noty Sync` (or legacy `Noty Backup`) data is present in Files.
-
-For **OneDrive**, install and sign in to the OneDrive iPad app if your school permits it. In Files, ensure OneDrive appears under **Locations**. Then choose a OneDrive folder in Noty's Settings. This remains a separate PDF mirror for reading and recovery: Noty saves updated annotated PDF copies there after edits and during background retry opportunities. The editable multi-device library uses **Sync with Folder**.
-
+You can import files you explicitly select through Files or Photos. Noty saves the imported copy locally and never writes changes back to the source provider. If you subsequently move an export through Files or another app, that app controls its destination.
 
 ## Development
 
-Run the **NotyTests** target in Xcode. Integration tests exercise PDF and DOCX import, page editing, PDF/PNG export, and editable backup recovery using a local folder as a stand-in for a Files provider. The DOCX renderer bundles offline JavaScript dependencies and license files in `Noty/Core/Resources`.
-
-Cloud execution is still best effort: a `BGProcessingTask` gives iPadOS another opportunity to finish cloud work after Noty leaves the foreground, but the system does not guarantee an exact run time and the Files provider controls the final upload. Keep the iCloud Drive folder selected and check the provider’s status in Files when you need to confirm a backup has reached the cloud.
+Run the **NotyTests** target in Xcode. Integration tests exercise PDF and DOCX import, page editing, local persistence, Trash recovery, and PDF/PNG export. Local-only regression tests cover upgrades with legacy folder grants and recording metadata, backup exclusion, remote import rejection, and blocked external Word resources. The DOCX renderer bundles offline JavaScript dependencies and license files in `Noty/Core/Resources`.
 
 ## Release validation
 

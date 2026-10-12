@@ -42,7 +42,7 @@ enum NotionTheme {
             : UIColor(red: 55 / 255, green: 53 / 255, blue: 47 / 255, alpha: 0.10)
     })
 
-    /// Callout / muted block fill (sync banners, empty states).
+    /// Callout / muted block fill (notices, empty states).
     static let callout = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(white: 1, alpha: 0.05)

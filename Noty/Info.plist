@@ -2,10 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>com.malik.noty.sync</string>
-	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -45,14 +41,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Noty uses the camera only when you choose Scan Document to add paper pages to a notebook.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Noty uses the microphone only when you choose to record lecture audio in a notebook.</string>
 	<key>UIApplicationSupportsDocumentBrowser</key>
 	<false/>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>processing</string>
-	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>UILaunchScreen</key>

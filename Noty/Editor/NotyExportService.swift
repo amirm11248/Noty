@@ -8,8 +8,7 @@ import UIKit
 enum NotyExportService {
     private static let defaultCanvasSize = CGSize(width: 612, height: 792)
 
-    /// Creates a uniquely named, user-facing PDF in Documents so it remains available
-    /// after the share sheet closes and can be saved or uploaded later.
+    /// Saves a uniquely named PDF in the device-local Documents folder.
     static func exportPDF(documentID: UUID, store: NotyStore, selectedPageIDs: Set<UUID>? = nil) throws -> URL {
         guard let document = store.documents.first(where: { $0.id == documentID }) else {
             throw NotyExportError.documentUnavailable
@@ -19,19 +18,6 @@ enum NotyExportService {
         let directory = try exportDirectory()
         let fileURL = directory.appendingPathComponent("\(safeName(document.title))-\(UUID().uuidString.prefix(8)).pdf")
         try makePDF(document: document, store: store, pages: pages).write(to: fileURL, options: .atomic)
-        return fileURL
-    }
-
-    /// Renders a stable per-document PDF for the cloud mirror. The path remains the
-    /// same across edits; each new rendering atomically replaces the previous one.
-    static func exportPDFForSync(documentID: UUID, store: NotyStore) throws -> URL {
-        guard let document = store.documents.first(where: { $0.id == documentID }) else {
-            throw NotyExportError.documentUnavailable
-        }
-        guard !document.pages.isEmpty else { throw NotyExportError.noPages }
-        let directory = try syncDirectory()
-        let fileURL = directory.appendingPathComponent("\(document.id.uuidString).pdf")
-        try makePDF(document: document, store: store).write(to: fileURL, options: .atomic)
         return fileURL
     }
 
@@ -292,20 +278,9 @@ enum NotyExportService {
     }
 
     private static func exportDirectory() throws -> URL {
-        guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            throw NotyExportError.outputDirectoryUnavailable
-        }
+        let documents = try NotyLocalStorage.documentsDirectory()
         let directory = documents.appendingPathComponent("Noty Exports", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory
-    }
-
-    private static func syncDirectory() throws -> URL {
-        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw NotyExportError.outputDirectoryUnavailable
-        }
-        let directory = support.appendingPathComponent("Noty Sync", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try NotyLocalStorage.prepareDirectory(at: directory)
         return directory
     }
 
@@ -322,7 +297,6 @@ private enum NotyExportError: LocalizedError {
     case pageUnavailable
     case noPages
     case imageEncodingFailed
-    case outputDirectoryUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -330,7 +304,6 @@ private enum NotyExportError: LocalizedError {
         case .pageUnavailable: "The page could not be found."
         case .noPages: "Add a page before exporting this document."
         case .imageEncodingFailed: "The page image could not be created."
-        case .outputDirectoryUnavailable: "The export folder is unavailable."
         }
     }
 }

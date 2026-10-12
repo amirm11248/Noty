@@ -61,7 +61,7 @@ enum NotySelectionClipboard {
             for box in selected.textBoxes { NotyExportService.drawTextBox(box, canvasSize: size, in: context.cgContext) }
         }
         if let png = image.pngData() { item[UTType.png.identifier] = png }
-        UIPasteboard.general.setItems([item])
+        UIPasteboard.general.setItems([item], options: [.localOnly: true])
     }
 
     static func read() throws -> NotySelectionPayload? {

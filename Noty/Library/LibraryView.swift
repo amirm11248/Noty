@@ -6,7 +6,6 @@ import VisionKit
 
 struct LibraryView: View {
     var store: NotyStore
-    var oneDrive: OneDriveService
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -22,13 +21,9 @@ struct LibraryView: View {
     @State private var isImportingPhotos = false
     @State private var importPhotoItems: [PhotosPickerItem] = []
     @State private var isScanningDocument = false
-    @State private var syncDebounce: Task<Void, Never>?
-    @State private var syncDebounceID: UUID?
-    @State private var backgroundSyncTask: LibraryBackgroundTask?
     @State private var alertMessage: String?
     @State private var searchResults: [NotySearchResult] = []
     @State private var selectedSearchResult: NotySearchResult?
-    @State private var account = NotyAccountService()
     @AppStorage("noty.library.favoriteDocumentIDs") private var favoriteIDsValue = ""
     @AppStorage("noty.library.recentDocumentIDs") private var recentIDsValue = ""
     @AppStorage("noty.library.shelfView") private var shelfView = true
@@ -115,12 +110,9 @@ struct LibraryView: View {
         }
         .onChange(of: documentRevisionSignature) { _, _ in
             refreshSearchResults()
-            scheduleOneDriveSync()
-            scheduleBackgroundCloudRetry()
         }
         .onChange(of: folderRevisionSignature) { _, _ in
             refreshSearchResults()
-            scheduleBackgroundCloudRetry()
         }
         .onChange(of: searchText) { _, _ in
             refreshSearchResults()
@@ -130,19 +122,12 @@ struct LibraryView: View {
             withAnimation(.easeInOut(duration: 0.2)) {
                 columnVisibility = path.isEmpty ? .all : .detailOnly
             }
-            if path.isEmpty, oneDrive.isConnected {
-                Task { await oneDrive.syncAllPDFs(store: store) }
-            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
                 store.ensureHandwritingSearchIndex()
                 refreshSearchResults()
-                Task { await account.bootstrap(force: true) }
-                Task { await syncCloudMirrors() }
-            case .background:
-                flushCloudMirrorsBeforeSuspension()
             default:
                 break
             }
@@ -150,18 +135,6 @@ struct LibraryView: View {
         .task {
             store.ensureHandwritingSearchIndex()
             refreshSearchResults()
-            await account.bootstrap()
-            await syncCloudMirrors()
-            scheduleBackgroundCloudRetry()
-        }
-        .onDisappear {
-            guard syncDebounceID != nil else { return }
-            syncDebounce?.cancel()
-            syncDebounce = nil
-            syncDebounceID = nil
-            if oneDrive.isConnected {
-                Task { await oneDrive.syncAllPDFs(store: store) }
-            }
         }
     }
 
@@ -241,18 +214,6 @@ struct LibraryView: View {
                         if store.lastPersistenceError?.isEmpty == false {
                             persistenceWarning(store.lastPersistenceError ?? "")
                                 .padding(.bottom, 14)
-                        }
-
-                        if store.iCloudMirrorFolderURL == nil {
-                            iCloudBackupStatus
-                                .padding(.bottom, 18)
-                        } else {
-                            iCloudBackupStatus
-                                .padding(.bottom, 12)
-                        }
-                        if oneDrive.isConnected || oneDrive.lastError != nil {
-                            oneDriveBackupStatus
-                                .padding(.bottom, 12)
                         }
 
                         if !visibleFolders.isEmpty {
@@ -498,120 +459,6 @@ struct LibraryView: View {
         if selection == .recents { return "Pages you open will appear here." }
         if selection == .trash { return "Deleted documents stay here until you restore or permanently delete them." }
         return "Create a notebook or import a PDF, Word file, photo, or scan."
-    }
-
-    private var iCloudBackupStatus: some View {
-        Group {
-            if store.iCloudMirrorFolderURL == nil {
-                Button {
-                    present(.settings)
-                } label: {
-                    HStack(alignment: .top, spacing: 9) {
-                        Image(systemName: isICloudSyncError ? "exclamationmark.triangle" : "arrow.triangle.2.circlepath")
-                            .font(.system(size: 14))
-                            .foregroundStyle(isICloudSyncError ? NotionTheme.danger : NotionTheme.inkSecondary)
-                            .padding(.top, 1)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(
-                                isICloudSyncError
-                                    ? "Restore folder sync access"
-                                    : (account.sharedFolderURL == nil ? "Sync your library with a folder" : "Account workspace found")
-                            )
-                                .font(NotionTheme.font(13, weight: .medium))
-                                .foregroundStyle(NotionTheme.ink)
-                            Text(
-                                isICloudSyncError
-                                    ? displayICloudMirrorStatus(store.syncStatus)
-                                    : (account.sharedFolderURL == nil
-                                        ? "Choose the same iCloud Drive folder on each device. Sign in to remember its setup across devices."
-                                        : "Your Noty account has a saved iCloud workspace link. Open Settings to connect this device.")
-                            )
-                                .font(NotionTheme.caption)
-                                .foregroundStyle(isICloudSyncError ? NotionTheme.danger : NotionTheme.inkSecondary)
-                                .lineLimit(3)
-                                .multilineTextAlignment(.leading)
-                        }
-                        Spacer(minLength: 8)
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(NotionTheme.inkTertiary)
-                    }
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            } else {
-                HStack(spacing: 10) {
-                    Image(systemName: iCloudStatusSymbol)
-                        .font(.system(size: 14))
-                        .foregroundStyle(isICloudSyncError ? NotionTheme.danger : NotionTheme.inkSecondary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Sync folder · \(store.iCloudMirrorFolderURL?.lastPathComponent ?? "Files folder")")
-                            .font(NotionTheme.font(13, weight: .medium))
-                            .foregroundStyle(NotionTheme.ink)
-                        Text(displayICloudMirrorStatus(store.syncStatus))
-                            .font(NotionTheme.caption)
-                            .foregroundStyle(isICloudSyncError ? NotionTheme.danger : NotionTheme.inkSecondary)
-                            .lineLimit(3)
-                            .textSelection(.enabled)
-                    }
-                    Spacer(minLength: 4)
-                    Button {
-                        Task { await store.syncICloudMirror() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .buttonStyle(NotionIconButtonStyle())
-                    .accessibilityLabel("Sync folder now")
-                }
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(NotionTheme.hairline).frame(height: 1)
-        }
-    }
-
-    private var isICloudSyncError: Bool {
-        let status = store.syncStatus.lowercased()
-        return ["error", "failed", "could not", "unavailable", "not available", "expired", "needs to be renewed"]
-            .contains(where: { status.contains($0) })
-    }
-
-    private var iCloudStatusSymbol: String {
-        if isICloudSyncError { return "exclamationmark.triangle" }
-        let status = store.syncStatus.lowercased()
-        if ["checking", "next", "selected", "ready"].contains(where: { status.contains($0) }) {
-            return "arrow.up.circle"
-        }
-        return "checkmark.circle"
-    }
-
-    private var oneDriveBackupStatus: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: oneDrive.lastError == nil ? "externaldrive" : "exclamationmark.icloud")
-                .font(.system(size: 14))
-                .foregroundStyle(oneDrive.lastError == nil ? NotionTheme.inkSecondary : NotionTheme.danger)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(oneDrive.mirrorFolderName.map { "Selected Files folder · \($0)" } ?? "OneDrive folder needs attention")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(NotionTheme.ink)
-                Text(oneDrive.lastError ?? oneDrive.syncStatus)
-                    .font(.system(size: 12))
-                    .foregroundStyle(oneDrive.lastError == nil ? NotionTheme.inkSecondary : NotionTheme.danger)
-                    .lineLimit(3)
-                    .textSelection(.enabled)
-            }
-            Spacer(minLength: 4)
-        }
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(NotionTheme.hairline).frame(height: 1)
-        }
     }
 
     private func persistenceWarning(_ message: String) -> some View {
@@ -1330,7 +1177,7 @@ struct LibraryView: View {
             }
         case .settings:
             NavigationStack {
-                LibrarySettingsView(store: store, oneDrive: oneDrive, account: account)
+                LibrarySettingsView(store: store)
             }
         }
     }
@@ -1392,9 +1239,6 @@ struct LibraryView: View {
                 let operationMessages = importErrors + importNotices
                 if !operationMessages.isEmpty {
                     alertMessage = operationMessages.joined(separator: "\n")
-                }
-                if oneDrive.isConnected {
-                    await oneDrive.syncAllPDFs(store: store)
                 }
             }
         }
@@ -1527,51 +1371,6 @@ struct LibraryView: View {
         store.updatePageImages(documentID: documentID, pageID: pageID, images: pageImages)
     }
 
-    private func scheduleOneDriveSync() {
-        guard oneDrive.isConnected else { return }
-        syncDebounce?.cancel()
-        let scheduleID = UUID()
-        syncDebounceID = scheduleID
-        syncDebounce = Task {
-            try? await Task.sleep(nanoseconds: 1_400_000_000)
-            guard !Task.isCancelled, syncDebounceID == scheduleID else { return }
-            syncDebounce = nil
-            syncDebounceID = nil
-            await oneDrive.syncAllPDFs(store: store)
-        }
-    }
-
-    private func syncCloudMirrors() async {
-        if oneDrive.isConnected {
-            await oneDrive.syncAllPDFs(store: store)
-        }
-        if store.iCloudMirrorFolderURL != nil {
-            await store.syncICloudMirror()
-        }
-    }
-
-    private func scheduleBackgroundCloudRetry() {
-        NotyBackgroundSyncScheduler.scheduleIfNeeded(
-            hasWork: store.hasICloudMirror || oneDrive.isConnected
-        )
-    }
-
-    private func flushCloudMirrorsBeforeSuspension() {
-        scheduleBackgroundCloudRetry()
-        syncDebounce?.cancel()
-        syncDebounce = nil
-        syncDebounceID = nil
-        let task = LibraryBackgroundTask()
-        task.begin()
-        backgroundSyncTask = task
-        Task {
-            await syncCloudMirrors()
-            task.end()
-            if backgroundSyncTask === task {
-                backgroundSyncTask = nil
-            }
-        }
-    }
 }
 
 private struct DocumentScannerSheet: UIViewControllerRepresentable {
@@ -1627,25 +1426,6 @@ private struct DocumentScannerSheet: UIViewControllerRepresentable {
     }
 }
 
-@MainActor
-private final class LibraryBackgroundTask {
-    private var identifier: UIBackgroundTaskIdentifier = .invalid
-
-    func begin() {
-        identifier = UIApplication.shared.beginBackgroundTask(withName: "Noty Cloud Mirror") { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.end()
-            }
-        }
-    }
-
-    func end() {
-        guard identifier != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(identifier)
-        identifier = .invalid
-    }
-}
-
 private struct FolderOutlineRow {
     let folder: NotyFolder
     let depth: Int
@@ -1681,11 +1461,6 @@ private enum DeleteTarget {
     case document(UUID)
     case trashedDocument(UUID)
     case emptyTrash
-}
-
-private enum FolderPickerDestination {
-    case syncFolder
-    case oneDrive
 }
 
 private struct LibrarySheetRequest: Identifiable {
@@ -1862,17 +1637,8 @@ private struct MoveFolderRow: Identifiable {
 
 private struct LibrarySettingsView: View {
     var store: NotyStore
-    var oneDrive: OneDriveService
-    var account: NotyAccountService
 
     @Environment(\.dismiss) private var dismiss
-    @State private var isChoosingFolder = false
-    @State private var folderPickerDestination: FolderPickerDestination?
-    @State private var errorMessage: String?
-    @State private var sharedFolderLinkDraft = ""
-    @State private var accountEmail = ""
-    @State private var accountPassword = ""
-    @State private var isDeletingAccount = false
     @AppStorage("noty.editor.fingerDrawing") private var fingerDrawing = false
     @AppStorage("noty.editor.toolbarDock") private var toolbarDock = "top"
 
@@ -1883,195 +1649,29 @@ private struct LibrarySettingsView: View {
                 Picker("Toolbar position", selection: $toolbarDock) {
                     ForEach(["top", "bottom", "left", "right"], id: \.self) { Text($0.capitalized).tag($0) }
                 }
-                Text("Apple Pencil is always available. Turn off finger drawing to use your fingers for page navigation.").font(.caption).foregroundStyle(.secondary)
+                Text("Apple Pencil is always available. Turn off finger drawing to use your fingers for page navigation.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Storage") {
+                Label("Saved on this device", systemImage: "internaldrive")
+                Text("Notebooks stay on this device. Exports are saved in On My iPhone or On My iPad → noty → Noty Exports. Keep your own local copies before deleting the app or erasing the device.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let error = store.lastPersistenceError, !error.isEmpty {
+                    Label("A change could not be saved", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                    Text(error).font(.caption).textSelection(.enabled)
+                }
             }
             Section("About") {
                 NavigationLink("Privacy", destination: NotyPrivacyView())
-                Text("Noty works offline. Choose a sync folder to keep an editable copy across your devices.").font(.caption).foregroundStyle(.secondary)
-            }
-            Section {
-                if account.isAuthenticated {
-                    LabeledContent("Signed in", value: account.email ?? "Noty account")
-                    Text(account.status)
-                        .font(NotionTheme.caption)
-                        .foregroundStyle(.secondary)
-                    if let lastError = account.lastError {
-                        Text(lastError)
-                            .font(NotionTheme.caption)
-                            .foregroundStyle(.red)
-                            .textSelection(.enabled)
-                    }
-                    Button("Refresh account data", systemImage: "arrow.clockwise") {
-                        Task { await account.refreshProfile() }
-                    }
-                    Button("Delete account", systemImage: "person.crop.circle.badge.minus", role: .destructive) { isDeletingAccount = true }
-                        .disabled(account.isWorking)
-                    Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
-                        Task {
-                            await account.signOut()
-                            sharedFolderLinkDraft = ""
-                            accountPassword = ""
-                        }
-                    }
-                } else {
-                    TextField("Email", text: $accountEmail)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.emailAddress)
-                    SecureField("Password", text: $accountPassword)
-                        .textContentType(.password)
-                    HStack {
-                        Button("Sign in") {
-                            signIn()
-                        }
-                        .disabled(account.isWorking || accountEmail.isEmpty || accountPassword.isEmpty)
-
-                        Button("Create account") {
-                            createAccount()
-                        }
-                        .disabled(account.isWorking || accountEmail.isEmpty || accountPassword.isEmpty)
-                    }
-                    if account.isWorking {
-                        ProgressView()
-                    }
-                    Text(account.lastError ?? account.status)
-                        .font(NotionTheme.caption)
-                        .foregroundStyle(account.lastError == nil ? NotionTheme.inkSecondary : NotionTheme.danger)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            } header: {
-                Text("Noty Account")
-            } footer: {
-                Text("Your account remembers your sync folder setup across devices. Your notebooks stay on your device and in the folder you choose.")
-            }
-
-            if let persistenceError = store.lastPersistenceError, !persistenceError.isEmpty {
-                Section("Local storage") {
-                    Label {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("A change could not be saved")
-                                .font(NotionTheme.font(13, weight: .semibold))
-                            Text(persistenceError)
-                                .font(NotionTheme.caption)
-                                .textSelection(.enabled)
-                        }
-                    } icon: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red)
-                    }
-                }
-            }
-
-            Section {
-                LabeledContent("Connected folder", value: store.iCloudMirrorFolderURL?.lastPathComponent ?? "Not connected")
-
-                Text("Use the same writable folder on every device. Noty keeps an editable library in that folder and merges newer changes back into the local library.")
-                    .font(NotionTheme.caption)
-                    .foregroundStyle(.secondary)
-
-                Button(store.iCloudMirrorFolderURL == nil ? "Choose sync folder" : "Choose another sync folder", systemImage: "folder.badge.plus") {
-                    presentFolderPicker(.syncFolder)
-                }
-
-                if store.iCloudMirrorFolderURL != nil {
-                    Button("Sync now", systemImage: "arrow.triangle.2.circlepath") {
-                        Task { await store.syncICloudMirror() }
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Folder status")
-                        .font(NotionTheme.bodySmall)
-                        .foregroundStyle(.secondary)
-                    Text(displayICloudMirrorStatus(store.syncStatus))
-                        .font(NotionTheme.caption)
-                        .foregroundStyle(isICloudStatusError ? NotionTheme.danger : NotionTheme.inkSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                }
-
-                Divider()
-
-                Text("Optional shared folder link")
-                    .font(NotionTheme.font(13, weight: .semibold))
-
-                TextField("https://www.icloud.com/…", text: $sharedFolderLinkDraft)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-
-                Button("Save link to my Noty account", systemImage: "person.crop.circle.badge.checkmark") {
-                    saveSharedFolderLink()
-                }
-                .disabled(!account.isAuthenticated || account.isWorking)
-
-                if let sharedURL = account.sharedFolderURL {
-                    Button("Open saved shared-folder link", systemImage: "link") {
-                        UIApplication.shared.open(sharedURL, options: [:], completionHandler: nil)
-                    }
-
-                    ShareLink(item: sharedURL) {
-                        Label("Share folder link", systemImage: "square.and.arrow.up")
-                    }
-
-                    Button("Remove saved link from my account", systemImage: "trash", role: .destructive) {
-                        forgetSharedFolderLink()
-                    }
-                }
-
-                if account.isAuthenticated {
-                    Button("Refresh link from my account", systemImage: "arrow.clockwise") {
-                        refreshSharedFolderLink()
-                    }
-                }
-
-                Text(account.status)
-                    .font(NotionTheme.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } header: {
-                Text("Sync with Folder")
-            } footer: {
-                Text("Sign in on another device to find your saved workspace, then choose its folder in Files. Use a private folder or share with people you choose to keep your notes private.")
-            }
-
-            Section {
-                LabeledContent("Selected Files folder", value: oneDrive.mirrorFolderName ?? "Not selected")
-                Text(oneDrive.syncStatus)
-                    .font(NotionTheme.caption)
-                    .foregroundStyle(.secondary)
-                if let lastError = oneDrive.lastError {
-                    Text(lastError)
-                        .font(NotionTheme.caption)
-                        .foregroundStyle(.red)
-                        .textSelection(.enabled)
-                }
-                Button(oneDrive.mirrorFolderName != nil ? "Choose another folder" : "Choose OneDrive folder in Files", systemImage: "folder.badge.plus") {
-                    presentFolderPicker(.oneDrive)
-                }
-                if oneDrive.mirrorFolderName != nil {
-                    Button("Sync PDFs now", systemImage: "arrow.triangle.2.circlepath") {
-                        Task { await oneDrive.syncAllPDFs(store: store) }
-                    }
-                    Button("Disconnect", systemImage: "xmark.circle", role: .destructive) {
-                        oneDrive.disconnect()
-                        NotyBackgroundSyncScheduler.scheduleIfNeeded(hasWork: store.hasICloudMirror)
-                    }
-                }
-                Text("Sign in with Microsoft in the official OneDrive app, then select its writable folder in Files. Noty saves PDF copies after edits while it is open and when you return to it. Deleted Noty pages keep their saved PDF copies here. The selected Files provider may upload them later.")
-                    .font(NotionTheme.caption)
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("OneDrive")
-            } footer: {
-                Text("Noty stores permission for the selected Files folder and does not handle your Microsoft account credentials. Disconnecting removes permission but leaves saved copies in place. The selected location may be provided by another Files provider.")
+                Text("Noty works offline. No account or internet connection is required.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .font(NotionTheme.bodySmall)
         .scrollContentBackground(.hidden)
         .background(NotionTheme.canvas)
         .tint(NotionTheme.accent)
-        .sheet(isPresented: $isDeletingAccount) { DeleteNotyAccountSheet(account: account) }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(NotionTheme.canvas, for: .navigationBar)
@@ -2079,152 +1679,6 @@ private struct LibrarySettingsView: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }
-            }
-        }
-        .fileImporter(
-            isPresented: $isChoosingFolder,
-            allowedContentTypes: [.folder],
-            allowsMultipleSelection: false
-        ) { result in
-            switch folderPickerDestination {
-            case .syncFolder:
-                configureSyncFolder(result)
-            case .oneDrive:
-                configureOneDriveFolder(result)
-            case nil:
-                break
-            }
-            folderPickerDestination = nil
-        }
-        .alert(
-            "Noty",
-            isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
-            )
-        ) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
-        .task {
-            await account.bootstrap()
-            if accountEmail.isEmpty { accountEmail = account.email ?? "" }
-            if sharedFolderLinkDraft.isEmpty, let syncedLink = account.sharedFolderLink {
-                sharedFolderLinkDraft = syncedLink
-            }
-        }
-    }
-
-    private func presentFolderPicker(_ destination: FolderPickerDestination) {
-        folderPickerDestination = destination
-        isChoosingFolder = true
-    }
-
-    private var isICloudStatusError: Bool {
-        let status = store.syncStatus.lowercased()
-        return ["error", "failed", "could not", "unavailable", "not available", "expired", "needs to be renewed"]
-            .contains(where: { status.contains($0) })
-    }
-
-    private func configureSyncFolder(_ result: Result<[URL], Error>) {
-        switch result {
-        case .failure(let error):
-            if (error as? CocoaError)?.code != .userCancelled { errorMessage = error.localizedDescription }
-        case .success(let urls):
-            guard let folderURL = urls.first else { return }
-            let didStartAccessing = folderURL.startAccessingSecurityScopedResource()
-            defer {
-                if didStartAccessing { folderURL.stopAccessingSecurityScopedResource() }
-            }
-            do {
-                try store.configureICloudMirror(folderURL: folderURL)
-                NotyBackgroundSyncScheduler.scheduleIfNeeded(hasWork: true)
-                Task {
-                    await store.syncICloudMirror()
-                    if account.isAuthenticated {
-                        try? await account.saveSyncProfile(
-                            sharedFolderLink: account.sharedFolderLink,
-                            folderDisplayName: folderURL.lastPathComponent
-                        )
-                    }
-                }
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
-
-    private func saveSharedFolderLink() {
-        Task {
-            do {
-                try await account.saveSyncProfile(
-                    sharedFolderLink: sharedFolderLinkDraft,
-                    folderDisplayName: store.iCloudMirrorFolderURL?.lastPathComponent
-                )
-                sharedFolderLinkDraft = account.sharedFolderLink ?? ""
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
-
-    private func refreshSharedFolderLink() {
-        Task {
-            await account.refreshProfile()
-            if let syncedLink = account.sharedFolderLink {
-                sharedFolderLinkDraft = syncedLink
-            }
-        }
-    }
-
-    private func forgetSharedFolderLink() {
-        Task {
-            do {
-                try await account.clearSharedFolderLink()
-                sharedFolderLinkDraft = ""
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
-
-    private func signIn() {
-        Task {
-            do {
-                try await account.signIn(email: accountEmail, password: accountPassword)
-                accountPassword = ""
-                sharedFolderLinkDraft = account.sharedFolderLink ?? ""
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
-
-    private func createAccount() {
-        Task {
-            do {
-                try await account.signUp(email: accountEmail, password: accountPassword)
-                accountPassword = ""
-                sharedFolderLinkDraft = account.sharedFolderLink ?? ""
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
-
-    private func configureOneDriveFolder(_ result: Result<[URL], Error>) {
-        switch result {
-        case .failure(let error):
-            if (error as? CocoaError)?.code != .userCancelled { errorMessage = error.localizedDescription }
-        case .success(let urls):
-            guard let folderURL = urls.first else { return }
-            do {
-                try oneDrive.configureMirrorFolder(folderURL: folderURL)
-                NotyBackgroundSyncScheduler.scheduleIfNeeded(hasWork: true)
-                Task { await oneDrive.syncAllPDFs(store: store) }
-            } catch {
-                errorMessage = error.localizedDescription
             }
         }
     }
@@ -2294,17 +1748,6 @@ private struct DocumentPreview: View {
         }
         .accessibilityHidden(true)
     }
-}
-
-/// Keep provider wording neutral: folder sync can point to iCloud Drive or
-/// another writable Files provider.
-private func displayICloudMirrorStatus(_ status: String) -> String {
-    let legacyPrefix = "Saved to the selected iCloud Drive folder at "
-    let folderPrefix = "Saved to the selected sync folder at "
-    let prefix = status.hasPrefix(folderPrefix) ? folderPrefix : legacyPrefix
-    guard status.hasPrefix(prefix) else { return status }
-    let timestamp = status.dropFirst(prefix.count).components(separatedBy: ";").first ?? ""
-    return "Library synced with the selected Files folder at \(timestamp). Its provider controls any cloud upload."
 }
 
 private struct NotebookPressStyle: ButtonStyle {

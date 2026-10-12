@@ -213,19 +213,21 @@ final class NotyEditorIntegrationTests: XCTestCase {
         XCTAssertEqual(bitmap.height, 2376)
         XCTAssertGreaterThan(nonWhitePixelCount(in: bitmap), 1_000)
 
-        let syncURL = try NotyExportService.exportPDFForSync(documentID: imported.id, store: store)
-        let firstSyncData = try Data(contentsOf: syncURL)
+        let firstExportData = try Data(contentsOf: exportedURL)
         store.updateTextBoxes(
             documentID: imported.id,
             pageID: sourcePageID,
-            textBoxes: [NotyTextBox(text: "UPDATED_SYNC_SENTINEL", x: 72, y: 610, width: 300, height: 64, fontSize: 22)]
+            textBoxes: [NotyTextBox(text: "UPDATED_EXPORT_SENTINEL", x: 72, y: 610, width: 300, height: 64, fontSize: 22)]
         )
-        let rewrittenSyncURL = try NotyExportService.exportPDFForSync(documentID: imported.id, store: store)
-        let rewrittenSyncData = try Data(contentsOf: rewrittenSyncURL)
-        XCTAssertEqual(syncURL, rewrittenSyncURL)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: syncURL.path))
-        XCTAssertNotEqual(firstSyncData, rewrittenSyncData)
-        XCTAssertNotEqual(exportedURL, syncURL)
+        let updatedExportURL = try NotyExportService.exportPDF(documentID: imported.id, store: store)
+        defer {
+            for url in [exportedURL, imageURL, updatedExportURL] { try? FileManager.default.removeItem(at: url) }
+        }
+        XCTAssertNotEqual(exportedURL, updatedExportURL, "Exporting a new revision should preserve the previous local export.")
+        XCTAssertEqual(try Data(contentsOf: exportedURL), firstExportData)
+        let updatedPDF = try XCTUnwrap(PDFDocument(url: updatedExportURL))
+        let updatedText = String((updatedPDF.string ?? "").filter(\.isLetter))
+        XCTAssertTrue(updatedText.contains("UPDATEDEXPORTSENTINEL"))
     }
 
     @MainActor

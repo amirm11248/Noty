@@ -61,9 +61,6 @@ struct NotyStoreManifest: Codable {
 final class NotyStore {
     private(set) var folders: [NotyFolder] = []
     private(set) var documents: [NotyDocument] = []
-    private(set) var syncStatus = "Folder sync not configured"
-    private(set) var iCloudMirrorFolderURL: URL?
-    private(set) var isSyncingICloudMirror = false
     private(set) var lastPersistenceError: String?
     private(set) var lastOperationMessage: String?
     private(set) var trashItems: [NotyTrashedDocument] = []
@@ -75,12 +72,9 @@ final class NotyStore {
     @ObservationIgnored let fileManager = FileManager.default
     @ObservationIgnored var deletionRecords: [NotyDeletionRecord] = []
     @ObservationIgnored var folderDeletionRecords: [NotyFolderDeletionRecord] = []
-    @ObservationIgnored var localRevision: UInt64 = 0
-    @ObservationIgnored var mirrorDebounceTask: Task<Void, Never>?
     @ObservationIgnored private let imageCache = NSCache<NSString, UIImage>()
     @ObservationIgnored private var handwritingRecognitionJobs: [NotyHandwritingPageKey: NotyHandwritingRecognitionJob] = [:]
 
-    var hasICloudMirror: Bool { iCloudMirrorFolderURL != nil }
 
     init(storageDirectoryURL: URL? = nil) {
         imageCache.totalCostLimit = 40 * 1_024 * 1_024
@@ -94,10 +88,13 @@ final class NotyStore {
         }
 
         do {
-            try fileManager.createDirectory(at: self.storageDirectoryURL, withIntermediateDirectories: true)
+            try NotyLocalStorage.prepareDirectory(at: self.storageDirectoryURL)
+            _ = try NotyLocalStorage.applicationSupportDirectory()
+            _ = try NotyLocalStorage.documentsDirectory()
+            let legacyBookmark = self.storageDirectoryURL.appendingPathComponent("icloud-folder.bookmark")
+            try? fileManager.removeItem(at: legacyBookmark)
             loadLocalManifest()
             loadLocalTrash()
-            restoreMirrorBookmark()
         } catch {
             lastPersistenceError = "Noty could not open its local library: \(error.localizedDescription)"
         }
@@ -214,27 +211,6 @@ final class NotyStore {
     func coverImage(for document: NotyDocument, maximumPixelSize: Int = 2_048) -> UIImage? {
         guard let name = document.cover?.imageFileName, URL(fileURLWithPath: name).lastPathComponent == name else { return nil }
         return cachedImage(at: assetDirectoryURL(documentID: document.id).appendingPathComponent(name), maximumPixelSize: maximumPixelSize)
-    }
-
-    func audioURL(documentID: UUID, clip: NotyAudioClip) -> URL? {
-        guard URL(fileURLWithPath: clip.fileName).lastPathComponent == clip.fileName else { return nil }
-        let url = assetDirectoryURL(documentID: documentID).appendingPathComponent(clip.fileName)
-        return fileManager.fileExists(atPath: url.path) ? url : nil
-    }
-
-    func addAudioClip(documentID: UUID, clip: NotyAudioClip) {
-        guard let index = documents.firstIndex(where: { $0.id == documentID }) else { return }
-        documents[index].audioClips = (documents[index].audioClips ?? []) + [clip]
-        touchDocument(at: index)
-        persistCurrentManifest()
-    }
-
-    func deleteAudioClip(documentID: UUID, clipID: UUID) {
-        guard let index = documents.firstIndex(where: { $0.id == documentID }),
-              let clip = documents[index].audioClips?.first(where: { $0.id == clipID }) else { return }
-        documents[index].audioClips?.removeAll { $0.id == clipID }
-        touchDocument(at: index)
-        if persistCurrentManifest(), let url = audioURL(documentID: documentID, clip: clip) { try? fileManager.removeItem(at: url) }
     }
 
     func updateStudyCards(documentID: UUID, cards: [NotyStudyCard]) {
@@ -866,7 +842,7 @@ final class NotyStore {
         return (try? String(contentsOf: handwritingTextURL(documentID: documentID, pageID: pageID), encoding: .utf8)) ?? ""
     }
 
-    /// Reconciles old notes and interrupted OCR jobs, including notes restored through sync.
+    /// Reconciles old notes and interrupted OCR jobs, including notes reopened after an interrupted edit.
     func ensureHandwritingSearchIndex(documentID: UUID? = nil) {
         handwritingIndexError = nil
         for document in documents where documentID == nil || document.id == documentID {
@@ -966,6 +942,7 @@ final class NotyStore {
     }
 
     func importDocument(from url: URL, folderID: UUID?, converter: OfficeConverting? = nil) async throws -> NotyDocument {
+        guard url.isFileURL else { throw NotyStoreError.localFileRequired }
         guard folderID == nil || folders.contains(where: { $0.id == folderID }) else {
             throw NotyStoreError.folderNotFound
         }
@@ -1087,88 +1064,6 @@ final class NotyStore {
         }
     }
 
-    func configureICloudMirror(folderURL: URL) throws {
-        let accessWasStarted = folderURL.startAccessingSecurityScopedResource()
-        defer {
-            if accessWasStarted { folderURL.stopAccessingSecurityScopedResource() }
-        }
-
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: folderURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            syncStatus = "The selected sync location is not available. Select the folder again."
-            throw NotyStoreError.iCloudFolderUnavailable
-        }
-
-        do {
-            let bookmark = try persistentFolderBookmark(for: folderURL)
-            try bookmark.write(to: mirrorBookmarkURL, options: .atomic)
-            iCloudMirrorFolderURL = folderURL
-            syncStatus = "Sync folder selected. Checking for changes…"
-            lastOperationMessage = nil
-            scheduleICloudSyncDebounced()
-        } catch {
-            syncStatus = "The selected folder could not be saved: \(error.localizedDescription)"
-            throw error
-        }
-    }
-
-    func syncICloudMirror() async {
-        guard !isSyncingICloudMirror else { return }
-        mirrorDebounceTask?.cancel()
-        mirrorDebounceTask = nil
-        guard let folderURL = iCloudMirrorFolderURL else {
-            syncStatus = "Select a writable folder in Files to enable multi-device sync and recovery."
-            return
-        }
-        isSyncingICloudMirror = true
-        syncStatus = "Checking sync folder for changes…"
-        lastOperationMessage = nil
-        defer { isSyncingICloudMirror = false }
-
-        do {
-            await Task.yield()
-            let revisionAtStart = localRevision
-            let result = try Self.performICloudSync(
-                localDirectory: storageDirectoryURL,
-                selectedFolderURL: folderURL,
-                initialManifest: currentManifest()
-            )
-            guard localRevision == revisionAtStart else {
-                result.rollbackInstalledAssets()
-                scheduleICloudSyncDebounced()
-                syncStatus = "A newer local change was saved during sync. Noty will sync it next."
-                return
-            }
-            folders = result.manifest.folders
-            documents = result.manifest.documents
-            deletionRecords = result.manifest.deletions
-            folderDeletionRecords = result.manifest.folderDeletions
-            if result.localManifestChanged {
-                guard persistCurrentManifest(scheduleCloudSync: false, countsAsLocalEdit: false) else {
-                    result.rollbackInstalledAssets()
-                    throw CocoaError(.fileWriteUnknown)
-                }
-            }
-            result.finalizeInstalledAssets()
-            for documentID in result.restoredDocumentIDs {
-                if let source = originalFile(documentID: documentID) {
-                    do {
-                        try copyOriginalToUserDocuments(from: source, documentID: documentID)
-                    } catch {
-                        lastOperationMessage = "The library was recovered, but one original file could not be copied to the Files-visible Noty Imports folder: \(error.localizedDescription)"
-                    }
-                }
-            }
-            syncStatus = "Saved to the selected sync folder at \(Self.syncTimeString(result.syncedAt)); iPadOS manages provider upload."
-            if let note = result.note {
-                lastOperationMessage = note
-            }
-        } catch {
-            syncStatus = "Folder sync failed: \(error.localizedDescription)"
-            lastOperationMessage = "Your local Noty library is still saved on this iPad."
-        }
-    }
-
     // MARK: Shared persistence hooks
 
     func currentManifest() -> NotyStoreManifest {
@@ -1181,16 +1076,10 @@ final class NotyStore {
     }
 
     @discardableResult
-    func persistCurrentManifest(scheduleCloudSync: Bool = true, countsAsLocalEdit: Bool = true) -> Bool {
+    func persistCurrentManifest() -> Bool {
         do {
             try persist(currentManifest())
             lastPersistenceError = nil
-            if countsAsLocalEdit {
-                localRevision &+= 1
-            }
-            if scheduleCloudSync {
-                scheduleICloudSyncDebounced()
-            }
             return true
         } catch {
             lastPersistenceError = "Your library changed in memory but could not be written to this iPad: \(error.localizedDescription)"
@@ -1243,7 +1132,6 @@ final class NotyStore {
 
     private var manifestURL: URL { storageDirectoryURL.appendingPathComponent("manifest.json") }
     private var manifestBackupURL: URL { storageDirectoryURL.appendingPathComponent("manifest.previous.json") }
-    private var mirrorBookmarkURL: URL { storageDirectoryURL.appendingPathComponent("icloud-folder.bookmark") }
     private var trashDirectoryURL: URL { storageDirectoryURL.appendingPathComponent("Trash", isDirectory: true) }
 
     private func loadLocalManifest() {
@@ -1300,50 +1188,6 @@ final class NotyStore {
             try previous.write(to: manifestBackupURL, options: .atomic)
         }
         try data.write(to: manifestURL, options: .atomic)
-    }
-
-    private func restoreMirrorBookmark() {
-        guard let data = try? Data(contentsOf: mirrorBookmarkURL) else { return }
-        do {
-            let resolved = try resolvePersistentFolderBookmark(data)
-            iCloudMirrorFolderURL = resolved.url
-
-            if resolved.isStale {
-                let beganAccess = resolved.url.startAccessingSecurityScopedResource()
-                defer {
-                    if beganAccess { resolved.url.stopAccessingSecurityScopedResource() }
-                }
-                let refreshedBookmark = try persistentFolderBookmark(for: resolved.url)
-                try refreshedBookmark.write(to: mirrorBookmarkURL, options: .atomic)
-                syncStatus = "Sync folder access refreshed. Checking can resume."
-            } else {
-                syncStatus = "Sync folder ready. Sync to check for changes."
-            }
-        } catch {
-            iCloudMirrorFolderURL = nil
-            syncStatus = "Sync folder access expired. Select the same folder again in Files."
-        }
-    }
-
-    /// On iOS, directory-picker access is persisted using a minimal bookmark.
-    /// Resolving that bookmark restores a security-scoped directory URL.
-    private func persistentFolderBookmark(for url: URL) throws -> Data {
-        try url.bookmarkData(
-            options: [.minimalBookmark],
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        )
-    }
-
-    private func resolvePersistentFolderBookmark(_ data: Data) throws -> (url: URL, isStale: Bool) {
-        var isStale = false
-        let url = try URL(
-            resolvingBookmarkData: data,
-            options: [],
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        )
-        return (url, isStale)
     }
 
     private func touchDocument(at index: Int) {
@@ -1549,27 +1393,12 @@ final class NotyStore {
 
     private func copyOriginalToUserDocuments(from sourceURL: URL, documentID: UUID) throws {
         let destinationDirectory = userImportsDirectoryURL(documentID: documentID)
-        try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+        try NotyLocalStorage.prepareDirectory(at: destinationDirectory)
         let destinationURL = destinationDirectory.appendingPathComponent(sourceURL.lastPathComponent)
         if fileManager.fileExists(atPath: destinationURL.path) {
             try fileManager.removeItem(at: destinationURL)
         }
         try fileManager.copyItem(at: sourceURL, to: destinationURL)
-    }
-
-    func scheduleICloudSyncDebounced() {
-        guard iCloudMirrorFolderURL != nil else { return }
-        mirrorDebounceTask?.cancel()
-        mirrorDebounceTask = Task { [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: 1_200_000_000)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled, let self else { return }
-            self.mirrorDebounceTask = nil
-            await self.syncICloudMirror()
-        }
     }
 
     private static func importTitle(from url: URL) -> String {
@@ -1594,13 +1423,6 @@ final class NotyStore {
 
     private static func officeFallbackMessage(fileName: String, error: Error) -> String {
         "The original Word document “\(fileName)” is saved with this note. Noty could not convert it on this iPad. Export it as PDF from Word or Pages and import that PDF to preserve the original page layout."
-    }
-
-    private static func syncTimeString(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        formatter.dateStyle = .none
-        return formatter.string(from: date)
     }
 
     private static func copyProviderFile(from sourceURL: URL, to destinationURL: URL) throws {

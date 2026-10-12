@@ -1,68 +1,39 @@
-# Noty implementation contract
+# Noty architecture
 
-Native iOS/iPadOS 18+ SwiftUI app for iPhone and iPad. The project is generated from `project.yml` with XcodeGen. Source files belong under `Noty/` and are automatically included.
+Noty is a native SwiftUI iOS/iPadOS app. The repository version saves user content only in its local app sandbox and has no account or cloud backend.
 
-## Ownership
+## Layout
 
-- `Noty/Core/`: shared models, local store, import and the editable Files-folder synchronizer.
-- `Noty/Editor/`: PencilKit page editor, page actions, text boxes, PDF and image export.
-- `Noty/Library/` and `Noty/Sync/OneDriveService.swift`: library UI, OneDrive Files-provider PDF mirror, and the Supabase-backed Noty account/session client.
-- Root agent owns `project.yml`, `Noty/NotyApp.swift`, build, run and integration review.
+- `Noty/NotyApp.swift`: creates the local store, discards legacy local credentials, and handles explicitly opened files.
+- `Noty/Core/`: document models, local persistence, on-device handwriting recognition, Word conversion, drawing geometry, and shared design components.
+- `Noty/Library/`: notebook/folder library, search, Trash, writing settings, and privacy information.
+- `Noty/Editor/`: PencilKit editor, page/text/image objects, whiteboards, study tools, selection clipboard, and local exports.
+- `NotyTests/`: native tests with bundled PDF and DOCX fixtures.
 
-## Shared API
+## Persistence
 
-Core agent provides:
+`NotyStore` is the authoritative local store. It saves `manifest.json` in `Application Support/Noty` and keeps `manifest.previous.json` for recovery from a damaged manifest. Asset directories contain original imports, source PDFs, drawings, images, and handwriting indexes. Deleted notebooks are packaged in local Trash until restored or permanently removed.
 
-```swift
-enum NotyDocumentKind: String, Codable, CaseIterable { case note, pdf, book }
-enum NotyPageTemplate: String, Codable, CaseIterable { case blank, ruled, narrowRuled, grid, smallGrid, dots, cornell }
-enum NotyPageSizePreset: String, Codable, CaseIterable { case a4, a5, letter, legal, square, screen4x3, widescreen16x9 }
-enum NotyPageOrientation: String, Codable, CaseIterable { case portrait, landscape }
-struct NotyFolder: Identifiable, Codable, Hashable { var id: UUID; var name: String; var parentID: UUID? }
-struct NotyTextBox: Identifiable, Codable, Hashable { var id: UUID; var text: String; var x: Double; var y: Double; var width: Double; var height: Double; var fontSize: Double; var fontName: String?; var isBold: Bool; var isItalic: Bool; var isUnderlined: Bool; var colorHex: String; var alignment: NotyTextAlignment }
-struct NotyPageImage: Identifiable, Codable, Hashable { var id: UUID; var fileName: String; var x: Double; var y: Double; var width: Double; var height: Double; var rotationDegrees: Double }
-struct NotyPage: Identifiable, Codable, Hashable { var id: UUID; var template: NotyPageTemplate; var sourcePageIndex: Int?; var textBoxes: [NotyTextBox]; var images: [NotyPageImage]; var isBookmarked: Bool; var bookmarkTitle: String?; var paperColorHex: String; var sizePreset: NotyPageSizePreset; var orientation: NotyPageOrientation; var canvasSize: CGSize { get } }
-struct NotyDocument: Identifiable, Codable, Hashable { var id: UUID; var title: String; var kind: NotyDocumentKind; var folderID: UUID?; var pages: [NotyPage]; var createdAt: Date; var updatedAt: Date }
-@MainActor @Observable final class NotyStore {
-  var folders: [NotyFolder]
-  var documents: [NotyDocument]
-  var syncStatus: String
-  init()
-  func createFolder(name: String, parentID: UUID?)
-  func renameFolder(id: UUID, name: String)
-  func deleteFolder(id: UUID)
-  func createDocument(title: String, kind: NotyDocumentKind, folderID: UUID?) -> NotyDocument
-  func renameDocument(id: UUID, title: String)
-  func moveDocument(id: UUID, to folderID: UUID?)
-  func deleteDocument(id: UUID)
-  func addPage(documentID: UUID, after pageID: UUID?, template: NotyPageTemplate)
-  func movePage(documentID: UUID, from: IndexSet, to: Int)
-  func deletePage(documentID: UUID, pageID: UUID)
-  func updatePageFormat(documentID: UUID, pageID: UUID, template: NotyPageTemplate?, paperColorHex: String?, sizePreset: NotyPageSizePreset?, orientation: NotyPageOrientation?)
-  func updateTextBoxes(documentID: UUID, pageID: UUID, textBoxes: [NotyTextBox])
-  func updatePageBookmark(documentID: UUID, pageID: UUID, isBookmarked: Bool)
-  func addPageImage(data: Data, documentID: UUID, pageID: UUID) throws -> NotyPageImage
-  func updatePageImages(documentID: UUID, pageID: UUID, images: [NotyPageImage])
-  func restoreTrashedDocument(id: UUID)
-  func permanentlyDeleteTrashedDocument(id: UUID)
-  func saveDrawing(_ drawing: PKDrawing, documentID: UUID, pageID: UUID)
-  func drawing(documentID: UUID, pageID: UUID) -> PKDrawing
-  func sourcePDF(documentID: UUID) -> PDFDocument?
-  func importDocument(from url: URL, folderID: UUID?, converter: OfficeConverting?) async throws -> NotyDocument
-  func configureICloudMirror(folderURL: URL) throws
-  func syncICloudMirror() async
-}
-protocol OfficeConverting { func convertToPDF(fileURL: URL) async throws -> URL }
-```
+The manifest keeps backward-compatible decoding, including older timestamps and deletion records, so existing local notebooks can reopen. Legacy folder bookmarks are discarded without being resolved. No mutation schedules sync or writes to an external folder.
 
-The core agent may add signatures, but should keep these stable or message the others immediately. Store maintains authoritative document data and persists every mutation. Save imported original DOCX alongside the PDF. Page coordinates use each page's persisted canvas size. Legacy pages decode as US Letter portrait (612 × 792 points); resizing preserves existing ink, text and images proportionally.
+Audio recording, playback, and export are absent. `NotyDocument` ignores the obsolete recording field when decoding older notebooks or Trash entries, and new saves omit it. Existing local recording files are left untouched. No microphone permission or audio-session code remains.
 
-Editor agent provides `DocumentEditorView(documentID: UUID, store: NotyStore)` and `NotyExportService` with `exportPDF(documentID:store:) throws -> URL` and `exportPageImage(documentID:pageID:store:) throws -> URL`.
+`NotyLocalStorage` prepares local directories with `isExcludedFromBackup` and removes obsolete account credentials and folder settings from earlier installations. The app's entire Application Support and Documents directories are excluded from system backup, including legacy local export caches outside the current library. It never contacts a server.
 
-Library agent provides `LibraryView(store: NotyStore, oneDrive: OneDriveService)`, with a user-selected writable OneDrive folder accessed through the Files picker. OneDriveService mirrors exported PDFs into that folder; it does not require Microsoft Graph. Library opens editor via `DocumentEditorView`.
+## Imports and exports
 
-## Functional priorities
+The app accepts explicitly selected file URLs, copies imports into its sandbox, and never writes back to their original providers. A second copy of an imported original is visible in `Documents/Noty Imports`. Remote URLs passed to the document importer are rejected before reading content.
 
-1. Reliable local persistence, import PDF/DOCX, folder/book creation, PencilKit writing, customizable paper formats, page controls, rich text boxes, photo objects, page bookmarks, presenter mode, restorable Trash and export.
-2. Minimal Notion-inspired visual language: warm white, ink grey, quiet borders, clear typography, simple iconography; comfortable on iPad and Apple Pencil.
-3. **Sync with Folder** is the editable Apple-device path. The user selects the same writable iCloud Drive/File Provider folder on each device; iOS directory bookmarks persist each device's local security-scoped grant. **Noty Account** uses Supabase Auth and an RLS-protected Postgres profile to synchronize workspace discovery metadata such as the iCloud share URL and folder name. Never serialize or upload the security-scoped bookmark: the Files grant is device-local and each device must approve it once. Foreground edits are synchronized promptly and `com.malik.noty.sync` is registered as a BGProcessingTask fallback. OneDrive remains a separate rendered-PDF mirror. A future web client should use the same account identity plus a web-accessible document replica; an iCloud Drive link is not itself a browser document API.
+`LocalOfficeConverter` uses bundled JavaScript and `DOCXPreviewPDFSession` to render DOCX offline, with a local text fallback. The renderer uses an ephemeral WebKit data store. Its Content Security Policy permits embedded images/fonts and inline layout styles, blocks external resources and connections, and its navigation delegate allows only local file navigation.
+
+`NotyExportService` renders PDF/PNG into `Documents/Noty Exports`. The editor reports the saved filename and local Files location. There is no share sheet or writable provider-folder selection. Clipboard writes for page objects, text, and images use `localOnly` to prevent Universal Clipboard transfer.
+
+## UI contracts
+
+`LibraryView(store: NotyStore)` opens `DocumentEditorView(documentID: UUID, store: NotyStore)`. Settings contain writing preferences, local storage information, and Privacy. No account client is constructed at launch or on scene transitions, and no background processing task is registered or permitted.
+
+Page coordinates use each page's persisted canvas size. Legacy pages decode as US Letter portrait (612 × 792 points); resizing preserves ink, text, and images proportionally. Local exports compose original PDF content, drawings, typed text, photos, and covers.
+
+## Validation
+
+The native suite verifies imports, editor geometry, persistence across relaunch, Trash recovery, selection operations, search, and local exports. Local-only regressions verify that a legacy external-folder grant cannot resume mirroring, local directories are excluded from backup, remote imports fail, and the Word renderer blocks external resources while retaining embedded images.
