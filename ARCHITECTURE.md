@@ -1,6 +1,6 @@
 # Noty architecture
 
-Noty is a native SwiftUI iOS/iPadOS app. The repository version saves user content only in its local app sandbox and has no account or cloud backend.
+Noty has a native SwiftUI iOS/iPadOS app and a browser companion. The repository version saves user content only on the current device and has no account or cloud backend.
 
 ## Layout
 
@@ -9,6 +9,7 @@ Noty is a native SwiftUI iOS/iPadOS app. The repository version saves user conte
 - `Noty/Library/`: notebook/folder library, search, Trash, writing settings, and privacy information.
 - `Noty/Editor/`: PencilKit editor, page/text/image objects, whiteboards, study tools, selection clipboard, and local exports.
 - `NotyTests/`: native tests with bundled PDF and DOCX fixtures.
+- `web/`: browser editor with local IndexedDB storage and manual notebook imports/exports.
 
 ## Persistence
 
@@ -37,3 +38,9 @@ Page coordinates use each page's persisted canvas size. Legacy pages decode as U
 ## Validation
 
 The native suite verifies imports, editor geometry, persistence across relaunch, Trash recovery, selection operations, search, and local exports. Local-only regressions verify that a legacy external-folder grant cannot resume mirroring, local directories are excluded from backup, remote imports fail, and the Word renderer blocks external resources while retaining embedded images.
+
+## Browser storage
+
+`web/src/local-library.mjs` stores notebooks, folders, and binary assets in IndexedDB. Each save checks the stored revision in the same transaction to prevent another browser tab from overwriting newer changes. Imports save a notebook and its assets atomically; deletion removes both. Local draft recovery uses localStorage. The editor reads assets through local Blob URLs and exports downloaded notebook ZIPs and PDFs.
+
+The browser companion has no account, remote database, storage service, recording controls, or automatic sync. Legacy notebook imports discard account and recording metadata. Its production Content Security Policy blocks outgoing data connections while allowing local Blob reads. Each browser profile and site origin has an independent library, so users move notebooks by manually downloading and importing files.

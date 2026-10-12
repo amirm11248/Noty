@@ -12,6 +12,7 @@ Updated 2026-10-12 for the local-only repository version.
 - Offline Word rendering with remote resources and connections blocked.
 - In-app privacy information and a privacy manifest declaring no collected user data.
 - Audio recording, playback, audio export, and microphone permission removed. Old notebooks and Trash entries ignore obsolete recording metadata and remain readable.
+- Browser companion uses IndexedDB for notebooks, folders, and assets, with local draft recovery and manual file import/export. Its production Content Security Policy blocks outgoing data connections.
 
 ## Validation
 
@@ -21,6 +22,9 @@ Verified on 2026-10-12 with Xcode 27.0:
 - Debug app and `NotyTests` bundle compiled successfully for a generic iOS device with `build-for-testing`.
 - The legacy recording-metadata compatibility regression passed on macOS using the app's actual model source: one test, zero failures. Older notebooks and Trash entries decode successfully, and new saves omit recording metadata.
 - Source, configuration, and Release executable checks found no backend clients, endpoints, cloud sync, background-upload configuration, or audio recording/playback code. The built app has no microphone usage description. `git diff --check` passed.
+- Browser production build and all 12 browser tests passed, including local binary persistence, concurrent-tab save conflicts, atomic imports, asset deletion, legacy metadata cleanup, and local drafts.
+- Browser save/reload/reopen was checked against the production build without a simulator.
+- Compatible browser dependency updates address the reported Vite and fflate advisories. `npm audit` still reports three moderate findings through Mammoth's argparse/sprintf-js CLI dependencies; its suggested automatic fix would downgrade Mammoth incompatibly.
 
 The full native iOS suite was not executed: the Mac's simulator was unavailable, and the user requested that it not be used. Build success confirms compilation, not app runtime behavior. Run `NotyTests` on a working device before distribution; the suite covers editing, import, local persistence, exports, Trash, and local-only regressions. Earlier cloud-version test results are not evidence for this version.
 

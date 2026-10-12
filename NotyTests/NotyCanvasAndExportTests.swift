@@ -145,3 +145,26 @@ final class NotyCanvasAndExportTests: XCTestCase {
         return PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: points, creationDate: .now))
     }
 }
+
+extension NotyCanvasAndExportTests {
+    @MainActor
+    func testBrowserInkRoundTripsAndIsConsumedExactlyOnce() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var store = NotyStore(storageDirectoryURL: root)
+        let document = store.createDocument(title: "Web ink", kind: .note, folderID: nil)
+        var manifest = store.currentManifest()
+        manifest.documents[0].pages[0].webStrokes = [NotyWebStroke(id: UUID(), color: "202020", width: 3, points: [NotyWebPoint(x: 10, y: 20), NotyWebPoint(x: 90, y: 80)])]
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .millisecondsSince1970
+        try encoder.encode(manifest).write(to: root.appendingPathComponent("manifest.json"), options: .atomic)
+        store = NotyStore(storageDirectoryURL: root)
+        let pageID = try XCTUnwrap(store.documents.first?.pages.first?.id)
+        let drawing = store.drawing(documentID: document.id, pageID: pageID)
+        XCTAssertEqual(drawing.strokes.count, 1)
+        store.saveDrawing(drawing, documentID: document.id, pageID: pageID)
+        XCTAssertNil(store.documents[0].pages[0].webStrokes)
+        XCTAssertEqual(store.drawing(documentID: document.id, pageID: pageID).strokes.count, 1)
+
+    }
+}

@@ -1,5 +1,7 @@
 # noty
 
+Personal hobby project by [Malik Abdullah Amir](https://github.com/amirm11248), currently developed for learning and personal use without monetization. Original code and documentation are licensed under [MIT](LICENSE). See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the current purpose.
+
 A local-only Apple-device notebook for class notes, study sessions, and writing directly on PDFs. Built with SwiftUI, PencilKit, and PDFKit. This repository version has no account system, backend connection, cloud storage, or automatic sync. Notebooks, photos, and study cards stay on the device.
 ## Open and run
 
@@ -47,4 +49,4 @@ Run the **NotyTests** target in Xcode. Integration tests exercise PDF and DOCX i
 
 ## Release validation
 
-See [RELEASE_READINESS.md](RELEASE_READINESS.md) for verified checks and the remaining device and App Store submission steps. [FEATURE_STATUS.md](FEATURE_STATUS.md) records the implemented features and remaining differences from Goodnotes. The browser preview mirrors the native iPad app; it is not a separate web editor.
+See [RELEASE_READINESS.md](RELEASE_READINESS.md) for verified checks and the remaining device and App Store submission steps. [FEATURE_STATUS.md](FEATURE_STATUS.md) records the implemented features and remaining differences from Goodnotes. The separate browser companion also saves locally, with no accounts or backend. See [web/README.md](web/README.md) for setup and local backup downloads.

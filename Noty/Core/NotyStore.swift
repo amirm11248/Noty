@@ -359,6 +359,9 @@ final class NotyStore {
                 try fileManager.removeItem(at: packageURL)
             }
             try? fileManager.removeItem(at: userImportsDirectoryURL(documentID: id))
+            deletionRecords.removeAll { $0.id == id }
+            deletionRecords.append(NotyDeletionRecord(id: id, deletedAt: Self.storeTimestamp()))
+            _ = persistCurrentManifest()
             lastOperationMessage = "The document was permanently deleted."
         } catch {
             trashItems.insert(item, at: min(itemIndex, trashItems.count))
@@ -810,6 +813,11 @@ final class NotyStore {
                 if saved == drawingData || (drawing.strokes.isEmpty && (try? PKDrawing(data: saved).strokes.isEmpty) == true) { return }
             } else if drawing.strokes.isEmpty { return }
             try drawingData.write(to: destination, options: .atomic)
+            // Browser strokes were included in the drawing supplied to PencilKit.
+            // Once edited natively, retain them in the binary drawing exactly once.
+            if let pageIndex = documents[documentIndex].pages.firstIndex(where: { $0.id == pageID }) {
+                documents[documentIndex].pages[pageIndex].webStrokes = nil
+            }
             // An edited or erased word must stop matching the previous OCR immediately.
             try? fileManager.removeItem(at: handwritingTextURL(documentID: documentID, pageID: pageID))
             try? fileManager.removeItem(at: handwritingDigestURL(documentID: documentID, pageID: pageID))
@@ -827,10 +835,21 @@ final class NotyStore {
 
     func drawing(documentID: UUID, pageID: UUID) -> PKDrawing {
         let url = drawingURL(documentID: documentID, pageID: pageID)
-        guard let data = try? Data(contentsOf: url), let drawing = try? PKDrawing(data: data) else {
-            return PKDrawing()
+        let native = (try? Data(contentsOf: url)).flatMap { try? PKDrawing(data: $0) } ?? PKDrawing()
+        let web = documents.first(where: { $0.id == documentID })?.pages.first(where: { $0.id == pageID })?.webStrokes ?? []
+        let strokes: [PKStroke] = web.compactMap { stroke in
+            guard !stroke.points.isEmpty else { return nil }
+            let hex = stroke.color.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+            let value = UInt32(hex, radix: 16) ?? 0x202020
+            let color = UIColor(red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255, blue: CGFloat(value & 255) / 255, alpha: 1)
+            let width = CGFloat(max(0.5, min(stroke.width, 100)))
+            let points = stroke.points.enumerated().map { index, point in
+                PKStrokePoint(location: CGPoint(x: point.x, y: point.y), timeOffset: Double(index) * 0.01,
+                              size: CGSize(width: width, height: width), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }
+            return PKStroke(ink: PKInk(.pen, color: color), path: PKStrokePath(controlPoints: points, creationDate: Date(timeIntervalSince1970: 0)))
         }
-        return drawing
+        return PKDrawing(strokes: native.strokes + strokes)
     }
 
     func recognizedHandwriting(documentID: UUID, pageID: UUID) -> String {

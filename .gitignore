@@ -1,0 +1,29 @@
+.DS_Store
+web/node_modules/
+web/dist/
+web/.sites-runtime/
+web/.env*
+NotyTests.xcresult/
+
+# Local Apple workspace state and build output
+**/xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+.build/
+*.xcresult
+*.log
+*.tsbuildinfo
+
+# Local configuration and signing credentials
+.env
+.env.*
+!**/.env.example
+*.pem
+*.key
+*.p12
+*.p8
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.crt

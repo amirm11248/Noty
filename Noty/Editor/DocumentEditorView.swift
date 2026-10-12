@@ -90,6 +90,11 @@ struct DocumentEditorView: View {
 
 
     var body: some View {
+        editorExportLayer
+    }
+
+    @ViewBuilder
+    private var editorRoot: some View {
         Group {
             if let document {
                 editor(document)
@@ -97,135 +102,236 @@ struct DocumentEditorView: View {
                 ContentUnavailableView("Document unavailable", systemImage: "doc.questionmark")
             }
         }
-        .background(EditorPalette.workspace.ignoresSafeArea())
-        .toolbar(.hidden, for: .navigationBar)
-        .navigationBarBackButtonHidden()
-        .onAppear(perform: selectInitialPage)
-        .onDisappear { canvasSessions.flushAll(); store.removeUnusedPhotoAssets(documentID: documentID) }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { canvasSessions.flushAll() } }
-        .onChange(of: selectedPageID) { _, _ in
-            activeToolSettings = nil
-        }
-        .onChange(of: drawingTool) { _, tool in if tool != .lasso { lassoSelection = nil } }
-        .onChange(of: canvasController.undoRevision) { _, _ in lassoSelection = nil }
-        .sheet(item: $croppingImage) { image in
-            if let page = selectedPage, let original = store.originalPageImage(documentID: documentID, pageID: page.id, image: image) {
-                ImageCropSheet(image: original, pageImage: image) { updated in updatePageImage(page, imageID: image.id) { $0 = updated } }
+    }
+
+    private var editorLifecycleLayer: some View {
+        editorRoot
+            .background(EditorPalette.workspace.ignoresSafeArea())
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden()
+            .onAppear(perform: selectInitialPage)
+            .onDisappear {
+                canvasSessions.flushAll()
+                store.removeUnusedPhotoAssets(documentID: documentID)
             }
-        }
-        .sheet(isPresented: $isSearching) {
-            NotebookSearchSheet(documentID: documentID, store: store) { pageID in
-                navigate(to: pageID)
+            .onChange(of: scenePhase) { _, phase in
+                if phase != .active { canvasSessions.flushAll() }
             }
-        }
-        .alert("Name bookmark", isPresented: Binding(get: { bookmarkPage != nil }, set: { if !$0 { bookmarkPage = nil } })) {
-            TextField("Section title", text: $bookmarkName)
-            Button("Save") { if let page = bookmarkPage { store.updatePageBookmark(documentID: documentID, pageID: page.id, isBookmarked: true, title: bookmarkName) }; bookmarkPage = nil }
-            Button("Cancel", role: .cancel) { bookmarkPage = nil }
-        }
-        .sheet(isPresented: $isSelectingExportPages, onDismiss: {
-            if let pageIDs = pendingExportPageIDs { pendingExportPageIDs = nil; exportPDF(selectedPageIDs: pageIDs) }
-        }) {
-            NotebookPageExportSheet(documentID: documentID, store: store, sourcePDF: sourcePDF, initialPageID: selectedPage?.id) { pageIDs in pendingExportPageIDs = pageIDs }
-        }
-        .sheet(isPresented: $isArrangingPages) { NotebookPageArrangementSheet(documentID: documentID, store: store) }
-        .sheet(isPresented: $isAddingPage) {
-            NotebookDesignSheet(purpose: .page, initialPage: currentPaper) { _, page, _, _ in
-                addPage(template: page.template, format: page)
+            .onChange(of: selectedPageID) { _, _ in
+                activeToolSettings = nil
             }
-        }
-        .sheet(isPresented: $isEditingCover) {
-            if let document {
-                NotebookDesignSheet(purpose: .cover, initialTitle: document.title, initialCover: document.displayCover, existingCoverImage: store.coverImage(for: document)) { title, _, cover, imageData in
-                    store.renameDocument(id: documentID, title: title)
-                    do { try store.updateCover(documentID: documentID, cover: cover, imageData: imageData) } catch { imageImportError = error.localizedDescription }
+            .onChange(of: drawingTool) { _, tool in
+                if tool != .lasso { lassoSelection = nil }
+            }
+            .onChange(of: canvasController.undoRevision) { _, _ in
+                lassoSelection = nil
+            }
+    }
+
+    private var editorPrimarySheetsLayer: some View {
+        editorLifecycleLayer
+            .sheet(item: $croppingImage) { image in
+                if let page = selectedPage,
+                   let original = store.originalPageImage(documentID: documentID, pageID: page.id, image: image) {
+                    ImageCropSheet(image: original, pageImage: image) { updated in
+                        updatePageImage(page, imageID: image.id) { $0 = updated }
+                    }
                 }
             }
-        }
-        .sheet(isPresented: $isShowingStudyTools) {
-            StudyToolsSheet(documentID: documentID, store: store, selectedText: selectedPage?.textBoxes.first(where: { $0.id == selectedTextBoxID })?.text)
-        }
-        .fileImporter(isPresented: $isShowingImageImporter, allowedContentTypes: [.image]) { result in
-            do {
-                let url = try result.get()
-                let granted = url.startAccessingSecurityScopedResource()
-                defer { if granted { url.stopAccessingSecurityScopedResource() } }
-                guard let page = selectedPage else { return }
-                let image = try objectHistory.addImage(store: store, undoManager: canvasController.undoManager, data: Data(contentsOf: url), documentID: documentID, pageID: page.id)
-                selectedImageID = image.id; drawingTool = .hand
-            } catch { imageImportError = error.localizedDescription }
-        }
-        .task(id: documentID) {
-            sourcePDF = store.sourcePDF(documentID: documentID)
-        }
-        .onChange(of: document?.pages.map(\.id) ?? []) { _, pageIDs in
-            if selectedPageID.map(pageIDs.contains) != true {
-                if let first = pageIDs.first { navigate(to: first) } else { selectedPageID = nil }
-                selectedTextBoxID = nil
-                editingTextBoxID = nil
-                selectedImageID = nil
+            .sheet(isPresented: $isSearching) {
+                NotebookSearchSheet(documentID: documentID, store: store) { pageID in
+                    navigate(to: pageID)
+                }
             }
-        }
-        .onChange(of: selectedPhotoItem) { _, item in
-            guard let item else { return }
-            Task { @MainActor in
-                defer { selectedPhotoItem = nil }
-                do {
-                    guard let data = try await item.loadTransferable(type: Data.self),
-                          let page = selectedPage else {
-                        throw NotyStoreError.invalidImage
+            .alert(
+                "Name bookmark",
+                isPresented: Binding(
+                    get: { bookmarkPage != nil },
+                    set: { if !$0 { bookmarkPage = nil } }
+                )
+            ) {
+                TextField("Section title", text: $bookmarkName)
+                Button("Save") {
+                    if let page = bookmarkPage {
+                        store.updatePageBookmark(
+                            documentID: documentID,
+                            pageID: page.id,
+                            isBookmarked: true,
+                            title: bookmarkName
+                        )
                     }
-                    let image = try objectHistory.addImage(store: store, undoManager: canvasController.undoManager, data: data, documentID: documentID, pageID: page.id)
-                    activeToolSettings = nil
+                    bookmarkPage = nil
+                }
+                Button("Cancel", role: .cancel) { bookmarkPage = nil }
+            }
+            .sheet(isPresented: $isSelectingExportPages, onDismiss: {
+                if let pageIDs = pendingExportPageIDs {
+                    pendingExportPageIDs = nil
+                    exportPDF(selectedPageIDs: pageIDs)
+                }
+            }) {
+                NotebookPageExportSheet(
+                    documentID: documentID,
+                    store: store,
+                    sourcePDF: sourcePDF,
+                    initialPageID: selectedPage?.id
+                ) { pageIDs in
+                    pendingExportPageIDs = pageIDs
+                }
+            }
+            .sheet(isPresented: $isArrangingPages) {
+                NotebookPageArrangementSheet(documentID: documentID, store: store)
+            }
+            .sheet(isPresented: $isAddingPage) {
+                NotebookDesignSheet(purpose: .page, initialPage: currentPaper) { _, page, _, _ in
+                    addPage(template: page.template, format: page)
+                }
+            }
+            .sheet(isPresented: $isEditingCover) {
+                if let document {
+                    NotebookDesignSheet(
+                        purpose: .cover,
+                        initialTitle: document.title,
+                        initialCover: document.displayCover,
+                        existingCoverImage: store.coverImage(for: document)
+                    ) { title, _, cover, imageData in
+                        store.renameDocument(id: documentID, title: title)
+                        do {
+                            try store.updateCover(documentID: documentID, cover: cover, imageData: imageData)
+                        } catch {
+                            imageImportError = error.localizedDescription
+                        }
+                    }
+                }
+            }
+    }
+
+    private var editorSecondarySheetsLayer: some View {
+        editorPrimarySheetsLayer
+            .sheet(isPresented: $isShowingStudyTools) {
+                StudyToolsSheet(
+                    documentID: documentID,
+                    store: store,
+                    selectedText: selectedPage?.textBoxes.first(where: { $0.id == selectedTextBoxID })?.text
+                )
+            }
+            .fileImporter(isPresented: $isShowingImageImporter, allowedContentTypes: [.image]) { result in
+                do {
+                    let url = try result.get()
+                    let granted = url.startAccessingSecurityScopedResource()
+                    defer { if granted { url.stopAccessingSecurityScopedResource() } }
+                    guard let page = selectedPage else { return }
+                    let image = try objectHistory.addImage(
+                        store: store,
+                        undoManager: canvasController.undoManager,
+                        data: Data(contentsOf: url),
+                        documentID: documentID,
+                        pageID: page.id
+                    )
                     selectedImageID = image.id
-                    selectedTextBoxID = nil
-                    editingTextBoxID = nil
-                    isToolPickerVisible = false
                     drawingTool = .hand
                 } catch {
                     imageImportError = error.localizedDescription
                 }
             }
-        }
-        .alert("Rename document", isPresented: $isShowingRename) {
-            TextField("Document title", text: $renameTitle)
-            Button("Cancel", role: .cancel) { }
-            Button("Save") {
-                store.renameDocument(id: documentID, title: renameTitle)
+            .task(id: documentID) {
+                sourcePDF = store.sourcePDF(documentID: documentID)
             }
-        }
-        .alert("Couldn’t export", isPresented: Binding(
-            get: { exportError != nil },
-            set: { if !$0 { exportError = nil } }
-        )) {
-            Button("OK", role: .cancel) { exportError = nil }
-        } message: {
-            Text(exportError ?? "Please try again.")
-        }
-        .alert("Couldn’t add image", isPresented: Binding(
-            get: { imageImportError != nil },
-            set: { if !$0 { imageImportError = nil } }
-        )) {
-            Button("OK", role: .cancel) { imageImportError = nil }
-        } message: {
-            Text(imageImportError ?? "Please try another image.")
-        }
-        .alert("Handwriting to text", isPresented: Binding(
-            get: { recognitionMessage != nil },
-            set: { if !$0 { recognitionMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { recognitionMessage = nil }
-        } message: {
-            Text(recognitionMessage ?? "")
-        }
-        .alert("Saved on this device", isPresented: Binding(
-            get: { exportedURL != nil },
-            set: { if !$0 { exportedURL = nil } }
-        )) {
-            Button("OK") { exportedURL = nil }
-        } message: {
-            Text("\(exportedURL?.lastPathComponent ?? "Export") was saved in Files → On My iPhone or On My iPad → noty → Noty Exports.")
-        }
+            .onChange(of: document?.pages.map(\.id) ?? []) { _, pageIDs in
+                if selectedPageID.map(pageIDs.contains) != true {
+                    if let first = pageIDs.first {
+                        navigate(to: first)
+                    } else {
+                        selectedPageID = nil
+                    }
+                    selectedTextBoxID = nil
+                    editingTextBoxID = nil
+                    selectedImageID = nil
+                }
+            }
+            .onChange(of: selectedPhotoItem) { _, item in
+                guard let item else { return }
+                Task { @MainActor in
+                    defer { selectedPhotoItem = nil }
+                    do {
+                        guard let data = try await item.loadTransferable(type: Data.self),
+                              let page = selectedPage else {
+                            throw NotyStoreError.invalidImage
+                        }
+                        let image = try objectHistory.addImage(
+                            store: store,
+                            undoManager: canvasController.undoManager,
+                            data: data,
+                            documentID: documentID,
+                            pageID: page.id
+                        )
+                        activeToolSettings = nil
+                        selectedImageID = image.id
+                        selectedTextBoxID = nil
+                        editingTextBoxID = nil
+                        isToolPickerVisible = false
+                        drawingTool = .hand
+                    } catch {
+                        imageImportError = error.localizedDescription
+                    }
+                }
+            }
+    }
+
+    private var editorAlertsLayer: some View {
+        editorSecondarySheetsLayer
+            .alert("Rename document", isPresented: $isShowingRename) {
+                TextField("Document title", text: $renameTitle)
+                Button("Cancel", role: .cancel) { }
+                Button("Save") {
+                    store.renameDocument(id: documentID, title: renameTitle)
+                }
+            }
+            .alert(
+                "Couldn’t export",
+                isPresented: Binding(
+                    get: { exportError != nil },
+                    set: { if !$0 { exportError = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { exportError = nil }
+            } message: {
+                Text(exportError ?? "Please try again.")
+            }
+            .alert(
+                "Couldn’t add image",
+                isPresented: Binding(
+                    get: { imageImportError != nil },
+                    set: { if !$0 { imageImportError = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { imageImportError = nil }
+            } message: {
+                Text(imageImportError ?? "Please try another image.")
+            }
+            .alert(
+                "Handwriting to text",
+                isPresented: Binding(
+                    get: { recognitionMessage != nil },
+                    set: { if !$0 { recognitionMessage = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { recognitionMessage = nil }
+            } message: {
+                Text(recognitionMessage ?? "")
+            }
+    }
+
+    private var editorExportLayer: some View {
+        editorAlertsLayer
+            .alert("Saved on this device", isPresented: Binding(
+                get: { exportedURL != nil },
+                set: { if !$0 { exportedURL = nil } }
+            )) {
+                Button("OK") { exportedURL = nil }
+            } message: {
+                Text("\(exportedURL?.lastPathComponent ?? "Export") was saved in Files → On My iPhone or On My iPad → noty → Noty Exports.")
+            }
     }
 
     @ViewBuilder
